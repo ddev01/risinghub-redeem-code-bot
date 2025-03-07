@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 import os
 from typing import Optional
 import sys
+import json
+import time
+from pathlib import Path
 
 
 class LoginManager:
@@ -11,12 +14,25 @@ class LoginManager:
     Handles authentication with the target website
     """
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, cookie_file: str = "session_cookies.json"):
         """
-        Initialize the login manager with base URL
+        Initialize the login manager with base URL and cookie file path
         """
         self.base_url = base_url
         self.session = requests.Session()
+
+        if os.getenv("DEBUG"):
+            self.session.proxies = {
+                "http": "http://127.0.0.1:8080",
+                "https": "http://127.0.0.1:8080",
+            }
+            proxy = "http://127.0.0.1:8080"
+            os.environ["http_proxy"] = proxy
+            os.environ["HTTP_PROXY"] = proxy
+            os.environ["https_proxy"] = proxy
+            os.environ["HTTPS_PROXY"] = proxy
+            os.environ["REQUESTS_CA_BUNDLE"] = "certificate.pem"
+        self.cookie_file = cookie_file
         # Set common browser headers
         self.session.headers.update(
             {
@@ -75,11 +91,123 @@ class LoginManager:
             # Successful login redirects to the base URL or profile, failed login redirects back to login
             if "/login" not in redirect_location:
                 print("Login successful!")
+                self.save_cookies()
                 return self.session
 
         # If we get here, login failed
         print("Login failed. Wrong credentials?")
         return None
+
+    def save_cookies(self) -> bool:
+        """
+        Saves the current session cookies to a file
+        """
+        try:
+            cookies_dict = {name: value for name, value in self.session.cookies.items()}
+
+            # Create directory if it doesn't exist
+            cookie_path = Path(self.cookie_file)
+            cookie_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(self.cookie_file, "w") as f:
+                json.dump({"cookies": cookies_dict, "timestamp": time.time()}, f)
+            print(f"Cookies saved to {self.cookie_file}")
+            return True
+        except Exception as e:
+            print(f"Error saving cookies: {e}")
+            return False
+
+    def load_cookies(self) -> bool:
+        """
+        Loads cookies from the cookie file into the current session
+        """
+        cookie_path = Path(self.cookie_file)
+
+        # If file doesn't exist, return False without error
+        if not cookie_path.exists():
+            print(
+                f"Cookie file {self.cookie_file} not found - will create on successful login"
+            )
+            return False
+
+        # If file is empty, return False without error
+        if cookie_path.stat().st_size == 0:
+            print(f"Cookie file is empty - will create proper file on successful login")
+            return False
+
+        try:
+            with open(self.cookie_file, "r") as f:
+                data = json.load(f)
+
+            # Check if cookies are expired (24 hours)
+            if time.time() - data.get("timestamp", 0) > 604800:
+                print("Cookies have expired")
+                return False
+
+            cookies_dict = data.get("cookies", {})
+            if not cookies_dict:
+                print("No cookies found in file")
+                return False
+
+            # Add cookies to session
+            for name, value in cookies_dict.items():
+                self.session.cookies.set(name, value)
+
+            print("Cookies loaded successfully")
+            return True
+        except json.JSONDecodeError:
+            print(
+                f"Invalid JSON in cookie file - will create new file on successful login"
+            )
+            return False
+        except Exception as e:
+            print(f"Error loading cookies: {e}")
+            return False
+
+    def verify_session(self) -> bool:
+        """
+        Verifies if the current session is valid by making a request to the redeem panel
+        """
+        try:
+            # Check the redeem-panel page that requires authentication
+            redeem_url = self.base_url + "profile#redeem-panel"
+            response = self.session.get(redeem_url, allow_redirects=False)
+
+            # If we get redirected to login, the session is invalid
+            if response.status_code == 302 and "/login" in response.headers.get(
+                "location", ""
+            ):
+                print("Session invalid: Redirected to login page")
+                return False
+
+            # If we get a 200 OK, the session is valid
+            if response.status_code == 200:
+                print("Session valid: Successfully accessed redeem panel")
+                return True
+
+            print(f"Session check: Unexpected status code {response.status_code}")
+            return False
+        except Exception as e:
+            print(f"Error verifying session: {e}")
+            return False
+
+
+def get_authenticated_session(
+    base_url: str, username: str, password: str
+) -> Optional[requests.Session]:
+    """
+    Gets an authenticated session either by loading cookies or logging in
+    """
+    login_manager = LoginManager(base_url)
+
+    # Try to load existing cookies first
+    if login_manager.load_cookies() and login_manager.verify_session():
+        print("Using existing session from cookies")
+        return login_manager.session
+
+    print("Need to login again")
+    # If cookies don't work, try logging in
+    return login_manager.login(username, password)
 
 
 def main() -> None:
@@ -96,11 +224,13 @@ def main() -> None:
         print("Error: Missing required environment variables. Please check .env file.")
         sys.exit(1)
 
-    login_manager = LoginManager(base_url)
-    session = login_manager.login(username, password)
+    session = get_authenticated_session(base_url, username, password)
 
     if not session:
+        print("Failed to authenticate. Exiting.")
         sys.exit(1)
+
+    print("Authentication successful.")
 
 
 if __name__ == "__main__":
