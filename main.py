@@ -17,12 +17,30 @@ class LoginManager:
         """
         self.base_url = base_url
         self.session = requests.Session()
+        # Set common browser headers
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-User": "?1",
+                "Cache-Control": "max-age=0",
+            }
+        )
 
     def login(self, username: str, password: str) -> Optional[requests.Session]:
         """
         Attempts to log in with the provided credentials
         """
         login_url = self.base_url + "login"
+        # Set referrer for initial request to base URL
+        self.session.headers.update({"Referer": self.base_url})
         response = self.session.get(login_url)
 
         # Parse the HTML to find the token
@@ -41,6 +59,9 @@ class LoginManager:
             "password": password,
             "submit": "",
         }
+
+        # Update referrer for login POST request
+        self.session.headers.update({"Referer": login_url})
 
         # Make the login request with allow_redirects=False to see the redirect location
         login_response = self.session.post(
@@ -63,7 +84,7 @@ class LoginManager:
 
 def main() -> None:
     """
-    Main function 
+    Main function
     """
     load_dotenv()
 
@@ -80,6 +101,7 @@ def main() -> None:
 
     if not session:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
