@@ -415,7 +415,6 @@ class CSVLogger:
                 ]
             )
 
-
     def log_failure(
         self,
         hero_name: str,
@@ -819,6 +818,30 @@ class CodeRedeemer:
         return overall_success
 
 
+def load_redemption_codes(file_path: str) -> list[str]:
+    """
+    Load redemption codes from a file, one code per line
+    Lines starting with # are treated as comments and ignored
+    """
+    codes = []
+    try:
+        with open(file_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith("#"):
+                    codes.append(line)
+
+        print(f"Loaded {len(codes)} redemption codes from {file_path}")
+        return codes
+    except FileNotFoundError:
+        print(f"Redemption codes file not found: {file_path}")
+        return []
+    except Exception as e:
+        print(f"Error loading redemption codes: {e}")
+        return []
+
+
 def main() -> None:
     """
     Main function
@@ -828,6 +851,12 @@ def main() -> None:
     username = os.getenv("USERNAME")
     password = os.getenv("PASSWORD")
     base_url = os.getenv("BASEURL")
+
+    # Get codes file path from environment or use default
+    codes_file = os.getenv("CODES_FILE", "redemption_codes.txt")
+
+    # Get rate limit delay (in seconds) from environment or use default
+    rate_limit_delay = float(os.getenv("RATE_LIMIT_DELAY", "0.3"))
 
     if not all([username, password, base_url]):
         print("Error: Missing required environment variables. Please check .env file.")
@@ -850,17 +879,41 @@ def main() -> None:
     # Initialize code redeemer with existing response if available
     redeemer = CodeRedeemer(session, base_url, response, logger)
 
-    # Display hero information
-    heroes = redeemer.extract_hero_ids()
-
-    # Get code from environment variable or command line
-    code = os.getenv("REDEEM_CODE", "")
-    if not code:
-        print("\nNo code provided. Please set REDEEM_CODE environment variable.")
+    # Load redemption codes from file
+    codes = load_redemption_codes(codes_file)
+    if not codes:
+        print(
+            f"No redemption codes found in {codes_file}. Please add codes to this file."
+        )
+        print(
+            "Format: One code per line. Lines starting with # are treated as comments."
+        )
+        # Create an example file if it doesn't exist
+        if not os.path.exists(codes_file):
+            with open(codes_file, "w") as f:
+                f.write("# Add your redemption codes here, one per line\n")
+                f.write("# Example: ABCD-1234-XYZ\n")
+            print(f"Created example file at {codes_file}")
         sys.exit(0)
 
-    print(f"\n--- Attempting to redeem code: {code} ---")
-    redeemer.redeem_code_with_priority(code)
+    # Process each code with rate limiting
+    print(
+        f"\nProcessing {len(codes)} redemption codes with {rate_limit_delay} second(s) delay between attempts..."
+    )
+
+    for i, code in enumerate(codes):
+        print(f"\n--- [{i+1}/{len(codes)}] Attempting to redeem code: {code} ---")
+        redeemer.redeem_code_with_priority(code)
+
+        # Sleep between redemptions to avoid rate limiting (except after the last one)
+        if i < len(codes) - 1 and rate_limit_delay > 0:
+            print(f"Waiting {rate_limit_delay} second(s) before next redemption...")
+            time.sleep(rate_limit_delay)
+
+    print("\nRedemption process complete. Check CSV logs for details.")
+    print(f"  Success log: {logger.success_log_file}")
+    print(f"  Info log: {logger.info_log_file}")
+    print(f"  Failure log: {logger.failure_log_file}")
 
 
 if __name__ == "__main__":
