@@ -2,11 +2,13 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
-from typing import Optional, Union
+from typing import Optional, Union, Dict, List, Any, Tuple
 import sys
 import json
 import time
 from pathlib import Path
+import csv
+from datetime import datetime
 
 
 class LoginManager:
@@ -225,6 +227,226 @@ def get_authenticated_session(
     return None, None
 
 
+class CSVLogger:
+    """
+    Handles logging redemption results to CSV files
+    """
+
+    def __init__(
+        self,
+        success_log_file: str = "logs/redemption_success.csv",
+        failure_log_file: str = "logs/redemption_failure.csv",
+        info_log_file: str = "logs/redemption_info.csv",
+    ):
+        """
+        Initialize with file paths for success, failure and info logs
+        """
+        # Ensure logs directory exists
+        self.logs_dir = Path("logs")
+        self.logs_dir.mkdir(exist_ok=True)
+
+        self.success_log_file = success_log_file
+        self.failure_log_file = failure_log_file
+        self.info_log_file = info_log_file
+
+        # Ensure files exist with headers
+        self._initialize_success_log()
+        self._initialize_failure_log()
+        self._initialize_info_log()
+
+    def _initialize_success_log(self) -> None:
+        """
+        Initialize success log file with headers if it doesn't exist
+        """
+        log_path = Path(self.success_log_file)
+        log_path.parent.mkdir(exist_ok=True)  # Ensure parent directory exists
+
+        if not log_path.exists():
+            with open(self.success_log_file, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "Timestamp",
+                        "Hero Name",
+                        "Hero ID",
+                        "Item ID",
+                        "Duration Type",
+                        "Duration/Count",
+                        "Item Name",
+                        "Category",
+                        "Code Used",
+                    ]
+                )
+
+    def _initialize_failure_log(self) -> None:
+        """
+        Initialize failure log file with headers if it doesn't exist
+        """
+        log_path = Path(self.failure_log_file)
+        log_path.parent.mkdir(exist_ok=True)  # Ensure parent directory exists
+
+        if not log_path.exists():
+            with open(self.failure_log_file, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "Timestamp",
+                        "Hero Name",
+                        "Hero ID",
+                        "Code Used",
+                        "Response Status",
+                        "Error Type",
+                        "Error Message",
+                        "Raw Response",
+                    ]
+                )
+
+    def _initialize_info_log(self) -> None:
+        """
+        Initialize info log file with headers if it doesn't exist
+        For logging informational responses (wrong hero class, already redeemed, etc.)
+        """
+        log_path = Path(self.info_log_file)
+        log_path.parent.mkdir(exist_ok=True)  # Ensure parent directory exists
+
+        if not log_path.exists():
+            with open(self.info_log_file, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "Timestamp",
+                        "Hero Name",
+                        "Hero ID",
+                        "Code Used",
+                        "Response Status",
+                        "Info Type",
+                        "Message",
+                        "Potential Items",
+                        "Raw Response",
+                    ]
+                )
+
+    def log_success(
+        self, hero_name: str, hero_id: str, code: str, items_data: Dict[str, List]
+    ) -> None:
+        """
+        Log successful redemption items to CSV
+        Items data format: {'item_id': [duration_type, duration, name, category]}
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Log each item as a separate row
+        with open(self.success_log_file, "a", newline="") as f:
+            writer = csv.writer(f)
+
+            for item_id, details in items_data.items():
+                if len(details) >= 4:
+                    duration_type = details[0]
+                    duration = details[1]
+                    item_name = details[2]
+                    category = details[3]
+
+                    writer.writerow(
+                        [
+                            timestamp,
+                            hero_name,
+                            hero_id,
+                            item_id,
+                            duration_type,
+                            duration,
+                            item_name,
+                            category,
+                            code,
+                        ]
+                    )
+                else:
+                    # Handle unexpected item format
+                    writer.writerow(
+                        [
+                            timestamp,
+                            hero_name,
+                            hero_id,
+                            item_id,
+                            "unknown",
+                            "unknown",
+                            "unknown",
+                            "unknown",
+                            code,
+                        ]
+                    )
+
+        print(
+            f"Logged {len(items_data)} successful item redemptions to {self.success_log_file}"
+        )
+
+    def log_info(
+        self,
+        hero_name: str,
+        hero_id: str,
+        code: str,
+        response_status: int,
+        info_type: str,
+        message: str,
+        potential_items: str = "",
+        raw_response: str = "",
+    ) -> None:
+        """
+        Log informational responses to CSV
+        For cases like wrong hero class, code already redeemed, etc.
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(self.info_log_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    timestamp,
+                    hero_name,
+                    hero_id,
+                    code,
+                    response_status,
+                    info_type,
+                    message,
+                    potential_items,
+                    raw_response,
+                ]
+            )
+
+        print(f"Logged info to {self.info_log_file}: {info_type}")
+
+    def log_failure(
+        self,
+        hero_name: str,
+        hero_id: str,
+        code: str,
+        response_status: int,
+        error_type: str,
+        error_message: str,
+        raw_response: str = "",
+    ) -> None:
+        """
+        Log failed redemption to CSV for actual errors (not info responses)
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(self.failure_log_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    timestamp,
+                    hero_name,
+                    hero_id,
+                    code,
+                    response_status,
+                    error_type,
+                    error_message,
+                    raw_response,
+                ]
+            )
+
+        print(f"Logged failure to {self.failure_log_file}: {error_type}")
+
+
 class CodeRedeemer:
     """
     Handles code redemption functionality
@@ -235,6 +457,7 @@ class CodeRedeemer:
         session: requests.Session,
         base_url: str,
         response: Optional[requests.Response] = None,
+        logger: Optional[CSVLogger] = None,
     ):
         """
         Initialize with an authenticated session and optional response
@@ -242,6 +465,13 @@ class CodeRedeemer:
         self.session = session
         self.base_url = base_url
         self.redeem_page_response = response
+        self.logger = logger or CSVLogger()
+
+        # If we don't have a response yet, get one
+        if not self.redeem_page_response:
+            self.redeem_page_response = self.session.get(
+                self.base_url + "profile#redeem-panel"
+            )
 
     def extract_token(self) -> Optional[str]:
         """
@@ -288,22 +518,75 @@ class CodeRedeemer:
             print(f"Found {len(heroes)} heroes")
         return heroes
 
-    def redeem_code(self, code: str, hero_id: Optional[Union[str, int]] = None) -> bool:
+    def redeem_code(
+        self,
+        code: str,
+        hero_id: Optional[Union[str, int]] = None,
+        hero_name: Optional[str] = None,
+    ) -> bool:
         """
         Redeem a code using the authenticated session
+        If hero_name is not provided, will try to find it from hero_id
         """
         # Get the CSRF token
         token = self.extract_token()
         if not token:
-            print(f"Failed to redeem code '{code}': No CSRF token found")
+            if hero_name and hero_id:
+                self.logger.log_failure(
+                    hero_name=hero_name,
+                    hero_id=str(hero_id),
+                    code=code,
+                    response_status=0,
+                    error_type="token_error",
+                    error_message="No CSRF token found",
+                    raw_response="",
+                )
+            print(f"No CSRF token found")
             return False
 
-        hero_ids = self.extract_hero_ids()
+        # If hero_id wasn't provided, try to extract it
+        heroes_dict = None
+        if not hero_id:
+            heroes_dict = self.extract_hero_ids()
+            if not heroes_dict:
+                self.logger.log_failure(
+                    hero_name="unknown",
+                    hero_id="unknown",
+                    code=code,
+                    response_status=0,
+                    error_type="hero_error",
+                    error_message="No heroes found",
+                    raw_response="",
+                )
+                print(f"Failed to redeem code '{code}': No heroes found")
+                return False
+
+            # Use the first hero if none specified
+            hero_id = list(heroes_dict.values())[0]
+            hero_name = list(heroes_dict.keys())[0]
+            print(f"No hero specified, using: {hero_name}")
+
+        # Ensure hero_id is a string
+        hero_id = str(hero_id)
+
+        # If hero_name wasn't provided, try to find it from the hero_id
+        if not hero_name:
+            if not heroes_dict:
+                heroes_dict = self.extract_hero_ids()
+
+            # Look up the hero name from the ID
+            for name, id_val in heroes_dict.items():
+                if str(id_val) == hero_id:
+                    hero_name = name
+                    break
+
+            if not hero_name:
+                hero_name = f"unknown_hero_{hero_id}"
 
         # Prepare the payload
         payload = {"_token": token, "hero": hero_id, "code": code}
 
-        # Set up headers similar to the manual request
+        # Set up headers
         headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
@@ -315,10 +598,9 @@ class CodeRedeemer:
         # Make the request
         try:
             redeem_url = self.base_url + "profile/redeem"
-            print(f"Attempting to redeem code: {code}")
             response = self.session.post(redeem_url, data=payload, headers=headers)
 
-            # Print status code for debugging
+            # Print minimal output
             print(f"Response status code: {response.status_code}")
 
             # Check if the request was successful
@@ -327,35 +609,134 @@ class CodeRedeemer:
                     result = response.json()
                     print(f"Response content: {result}")
 
-                    # Handle both list and dictionary responses
-                    if isinstance(result, dict):
-                        if "error" in result:
-                            print(f"Server rejected code '{code}': {result['error']}")
-                            return False
+                    # Handle successful redemption
+                    if (
+                        isinstance(result, list)
+                        and len(result) >= 2
+                        and result[0] == "success"
+                    ):
+                        # Extract items data
+                        items_data = result[1] if len(result) > 1 else {}
+
+                        # Log successful redemption
+                        if items_data:
+                            self.logger.log_success(
+                                hero_name=hero_name,
+                                hero_id=hero_id,
+                                code=code,
+                                items_data=items_data,
+                            )
+                        return True
+
+                    # Handle special case for wrong hero class/faction
                     elif (
                         isinstance(result, list)
                         and len(result) >= 2
                         and result[0] == "error"
                     ):
-                        print(f"Server rejected code '{code}': {result[1]}")
+                        error_data = result[1]
+
+                        # Case 1: Already redeemed code
+                        if (
+                            isinstance(error_data, str)
+                            and "can't use this code again" in error_data
+                        ):
+                            self.logger.log_info(
+                                hero_name=hero_name,
+                                hero_id=hero_id,
+                                code=code,
+                                response_status=response.status_code,
+                                info_type="already_redeemed",
+                                message="Code already redeemed",
+                                raw_response=str(result),
+                            )
+                            return False
+
+                        # Case 2: Wrong hero class/faction but shows potential items
+                        elif isinstance(error_data, dict):
+                            # Extract potential item names from the error
+                            potential_items = []
+                            for item_id, item_info in error_data.items():
+                                if isinstance(item_info, list) and len(item_info) > 0:
+                                    potential_items.append(f"{item_id}: {item_info[0]}")
+                                else:
+                                    potential_items.append(f"{item_id}: unknown")
+
+                            self.logger.log_info(
+                                hero_name=hero_name,
+                                hero_id=hero_id,
+                                code=code,
+                                response_status=response.status_code,
+                                info_type="wrong_hero_class",
+                                message="Wrong hero class or faction for this code",
+                                potential_items=", ".join(potential_items),
+                                raw_response=str(result),
+                            )
+                            return False
+                        # Case 3: Other error messages
+                        else:
+                            self.logger.log_info(
+                                hero_name=hero_name,
+                                hero_id=hero_id,
+                                code=code,
+                                response_status=response.status_code,
+                                info_type="other_info",
+                                message=str(error_data),
+                                raw_response=str(result),
+                            )
+                            return False
+                    else:
+                        # Unexpected response format - treat as actual failure
+                        self.logger.log_failure(
+                            hero_name=hero_name,
+                            hero_id=hero_id,
+                            code=code,
+                            response_status=response.status_code,
+                            error_type="unexpected_format",
+                            error_message="Unexpected response format",
+                            raw_response=str(result),
+                        )
                         return False
 
-                    print(f"Successfully redeemed code: {code}")
-                    return True
                 except json.JSONDecodeError:
-                    print(
-                        f"Successfully submitted code '{code}' but got non-JSON response"
+                    # Non-JSON response
+                    self.logger.log_failure(
+                        hero_name=hero_name,
+                        hero_id=hero_id,
+                        code=code,
+                        response_status=response.status_code,
+                        error_type="json_error",
+                        error_message="Invalid JSON response",
+                        raw_response=response.text[:500],  # Limit to 500 chars
                     )
                     print(f"Response: {response.text}")
-                    return True
+                    return False
             else:
-                print(f"Failed to redeem code '{code}': HTTP {response.status_code}")
+                # Non-200 response
+                self.logger.log_failure(
+                    hero_name=hero_name,
+                    hero_id=hero_id,
+                    code=code,
+                    response_status=response.status_code,
+                    error_type="http_error",
+                    error_message=f"HTTP error {response.status_code}",
+                    raw_response=response.text[:500],  # Limit to 500 chars
+                )
                 print(f"Response: {response.text}")
                 return False
 
         except Exception as e:
-            print(f"Error redeeming code '{code}': {e}")
-            print(f"Exception type: {type(e).__name__}")
+            # Exception during request
+            self.logger.log_failure(
+                hero_name=hero_name,
+                hero_id=hero_id,
+                code=code,
+                response_status=0,
+                error_type="exception",
+                error_message=str(e),
+                raw_response=type(e).__name__,
+            )
+            print(f"Error: {e}")
             return False
 
     def redeem_code_with_priority(self, code: str) -> bool:
@@ -372,6 +753,15 @@ class CodeRedeemer:
         heroes = self.extract_hero_ids()
         if not heroes:
             print(f"No heroes found to redeem code '{code}'")
+            self.logger.log_failure(
+                hero_name="unknown",
+                hero_id="unknown",
+                code=code,
+                response_status=0,
+                error_type="hero_error",
+                error_message="No heroes found",
+                raw_response="",
+            )
             return False
 
         # Get priority settings from environment
@@ -417,86 +807,29 @@ class CodeRedeemer:
         all_heroes_in_order = prioritized_heroes + remaining_heroes
         print(f"Will try redeeming code in this order: {all_heroes_in_order}")
 
+        # For debugging: If you want to test with just one specific hero, uncomment and modify this line:
+        # all_heroes_in_order = [all_heroes_in_order[0]]  # Only use first hero in list
+        # all_heroes_in_order = [""]  # Only use a specific hero by name
+
         # Try redeeming for each hero in priority order
-        success = False
+        overall_success = False
         for hero_name in all_heroes_in_order:
             hero_id = heroes[hero_name]
             print(
                 f"\nAttempting to redeem code '{code}' for hero {hero_name} (ID: {hero_id})"
             )
 
-            # Call redeem_code with a special flag to minimize output
-            result = self._redeem_code_minimal_output(code, hero_id)
+            # Call the consolidated redeem_code method with hero name
+            result = self.redeem_code(code, hero_id, hero_name)
 
             if result:
                 print(f"Successfully redeemed code '{code}' for hero {hero_name}")
-                success = True
+                overall_success = True
                 # We don't break here because we want to try for all heroes
             else:
                 print(f"Failed to redeem code '{code}' for hero {hero_name}")
 
-        return success
-
-    def _redeem_code_minimal_output(self, code: str, hero_id: str) -> bool:
-        """
-        Internal version of redeem_code with minimal output
-        """
-        # Get the CSRF token
-        token = self.extract_token()
-        if not token:
-            print(f"No CSRF token found")
-            return False
-
-        # Ensure hero_id is a string
-        hero_id = str(hero_id)
-
-        # Prepare the payload
-        payload = {"_token": token, "hero": hero_id, "code": code}
-
-        # Set up headers similar to the manual request
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": self.base_url + "profile",
-            "Origin": self.base_url.rstrip("/"),
-            "Accept": "*/*",
-        }
-
-        # Make the request
-        try:
-            redeem_url = self.base_url + "profile/redeem"
-            response = self.session.post(redeem_url, data=payload, headers=headers)
-
-            # Print minimal output
-            print(f"Response status code: {response.status_code}")
-
-            # Check if the request was successful
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    print(f"Response content: {result}")
-
-                    # Handle both list and dictionary responses
-                    if isinstance(result, dict) and "error" in result:
-                        return False
-                    elif (
-                        isinstance(result, list)
-                        and len(result) >= 2
-                        and result[0] == "error"
-                    ):
-                        return False
-
-                    return True
-                except json.JSONDecodeError:
-                    print(f"Response: {response.text}")
-                    return True
-            else:
-                print(f"Response: {response.text}")
-                return False
-
-        except Exception as e:
-            print(f"Error: {e}")
-            return False
+        return overall_success
 
 
 def main() -> None:
@@ -520,8 +853,15 @@ def main() -> None:
         print("Failed to authenticate. Exiting.")
         sys.exit(1)
 
+    # Create logger with customizable file paths
+    logger = CSVLogger(
+        success_log_file=os.getenv("SUCCESS_LOG", "logs/redemption_success.csv"),
+        failure_log_file=os.getenv("FAILURE_LOG", "logs/redemption_failure.csv"),
+        info_log_file=os.getenv("INFO_LOG", "logs/redemption_info.csv"),
+    )
+
     # Initialize code redeemer with existing response if available
-    redeemer = CodeRedeemer(session, base_url, response)
+    redeemer = CodeRedeemer(session, base_url, response, logger)
 
     # Display hero information
     heroes = redeemer.extract_hero_ids()
@@ -529,12 +869,19 @@ def main() -> None:
     for name, hero_id in heroes.items():
         print(f"  {name}: {hero_id}")
 
-    # Example code redemption
-    code = "MS15-NATG-1000"  # Replace with actual code to redeem
+    # Get code from environment variable or command line
+    code = os.getenv("REDEEM_CODE", "")
+    if not code:
+        print("\nNo code provided. Please set REDEEM_CODE environment variable.")
+        sys.exit(0)
+
     print(f"\n--- Attempting to redeem code: {code} ---")
     redeemer.redeem_code_with_priority(code)
 
-    print("\nAuthentication successful. Ready for more codes.")
+    print("\nRedemption process complete. Check CSV logs for details.")
+    print(f"  Success log: {logger.success_log_file}")
+    print(f"  Info log: {logger.info_log_file}")
+    print(f"  Failure log: {logger.failure_log_file}")
 
 
 if __name__ == "__main__":

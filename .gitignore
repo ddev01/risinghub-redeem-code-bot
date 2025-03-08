@@ -6,6 +6,11 @@ session_cookies.json
 *.cookies
 cookies/
 
+# Ignore log files but keep the logs directory
+logs/*.csv
+logs/*.log
+*.log
+
 # Python
 __pycache__/
 *.py[cod]
@@ -38,6 +43,3 @@ ENV/
 .vscode/
 *.swp
 *.swo
-
-# Logs
-*.log
