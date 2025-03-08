@@ -140,35 +140,70 @@ class HtmlParser:
             for table in tables:
                 # Check if this table has the redemption history headers
                 headers = table.find_all("th")
-                header_texts = [h.text.strip().lower() for h in headers]
 
-                # If the table has Date, Code, and Hero columns, it's likely the redemption table
-                if (
-                    "date" in header_texts
-                    and "code" in header_texts
-                    and "hero" in header_texts
-                ):
-                    # Extract the indices for each column
-                    date_idx = header_texts.index("date")
-                    code_idx = header_texts.index("code")
-                    hero_idx = header_texts.index("hero")
+                if headers:
+                    header_texts = [h.text.strip() for h in headers]
 
-                    # Process each row in the table body
-                    for row in table.find("tbody").find_all("tr"):
-                        cells = row.find_all("td")
-                        if len(cells) > max(date_idx, code_idx, hero_idx):
-                            redemption_data = {
-                                "date": cells[date_idx].text.strip(),
-                                "code": cells[code_idx].text.strip(),
-                                "hero": cells[hero_idx].text.strip(),
-                            }
-                            redemption_history.append(redemption_data)
+                    # Convert to lowercase for comparison
+                    header_texts_lower = [h.lower() for h in header_texts]
 
-                    # Found the redemption table, no need to continue searching
-                    break
+                    # Check if this looks like our redemption table
+                    has_date = any("date" in h for h in header_texts_lower)
+                    has_code = any("code" in h for h in header_texts_lower)
+                    has_hero = any("hero" in h for h in header_texts_lower)
+
+                    if has_date and has_code and has_hero:
+                        # Find column indices
+                        date_idx = next(
+                            (
+                                i
+                                for i, h in enumerate(header_texts_lower)
+                                if "date" in h
+                            ),
+                            -1,
+                        )
+                        code_idx = next(
+                            (
+                                i
+                                for i, h in enumerate(header_texts_lower)
+                                if "code" in h
+                            ),
+                            -1,
+                        )
+                        hero_idx = next(
+                            (
+                                i
+                                for i, h in enumerate(header_texts_lower)
+                                if "hero" in h
+                            ),
+                            -1,
+                        )
+
+                        # Only proceed if we found all necessary columns
+                        if date_idx >= 0 and code_idx >= 0 and hero_idx >= 0:
+                            # Find the table body
+                            tbody = table.find("tbody")
+                            if tbody:
+                                rows = tbody.find_all("tr")
+                            else:
+                                rows = table.find_all("tr")[1:]  # Skip header row
+
+                            for row in rows:
+                                cells = row.find_all("td")
+
+                                if len(cells) > max(date_idx, code_idx, hero_idx):
+                                    redemption_data = {
+                                        "date": cells[date_idx].text.strip(),
+                                        "code": cells[code_idx].text.strip(),
+                                        "hero": cells[hero_idx].text.strip(),
+                                    }
+                                    redemption_history.append(redemption_data)
+
+                            # Found the redemption table, no need to continue searching
+                            break
 
         except Exception as e:
-            # In case of any errors, just return an empty list
+            # Log the error but continue execution
             pass
 
         return redemption_history

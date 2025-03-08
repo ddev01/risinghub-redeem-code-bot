@@ -231,10 +231,77 @@ class CodeRedeemer:
 
         return HtmlParser.get_token_from_html(self.redeem_page_response.text)
 
+    def get_redemption_history(self) -> List[Dict[str, str]]:
+        """
+        Fetch and return the redemption history from the profile page
+
+        Returns:
+            List of dictionaries with date, code, and hero information
+        """
+        if not self.redeem_page_response:
+            # Fetch the profile page
+            response = RequestHandler.get(
+                self.session, self.base_url + "profile#redemption-history"
+            )
+            if not response:
+                return []
+            self.redeem_page_response = response
+
+        # Extract redemption history
+        redemption_history = HtmlParser.extract_redemption_history(
+            self.redeem_page_response.text
+        )
+
+        # Process the redemption history records
+        if redemption_history:
+            # Try different methods to ensure the records are tracked
+
+            # First attempt: Use csv_logger if available
+            if hasattr(self, "csv_logger") and self.csv_logger:
+                for record in redemption_history:
+                    code = record.get("code", "")
+                    hero = record.get("hero", "")
+
+                    if hasattr(self.csv_logger, "log_success"):
+                        self.csv_logger.log_success(
+                            code=code,
+                            hero_name=hero,
+                            hero_id="",  # We don't have hero IDs from history
+                            items=["Imported from history"],
+                        )
+
+                    # Direct access to redeemed_codes_tracker if available in csv_logger
+                    if hasattr(self.csv_logger, "redeemed_codes_tracker"):
+                        tracker = self.csv_logger.redeemed_codes_tracker
+                        tracker.mark_as_redeemed(
+                            self.username,
+                            hero,
+                            "",  # Hero ID not available from history
+                            code,
+                            "imported_from_history",
+                        )
+            else:
+                # Second attempt: Try to find redeemed_codes_manager in account_processor
+                try:
+                    from src.tracking.redeemed_codes_manager import RedeemedCodesManager
+
+                    rcm = RedeemedCodesManager()
+                    for record in redemption_history:
+                        code = record.get("code", "")
+                        hero = record.get("hero", "")
+                        rcm.mark_as_redeemed(
+                            self.username, hero, "", code, "imported_from_history"
+                        )
+                except Exception:
+                    # Failed to track with fallback method
+                    pass
+
+        return redemption_history
+
     def extract_hero_ids(self) -> Dict[str, str]:
         """
         Extract the hero IDs from the redeem page
-        
+
         Returns:
             A dictionary mapping hero names to hero IDs
         """

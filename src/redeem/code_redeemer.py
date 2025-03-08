@@ -68,17 +68,78 @@ class CodeRedeemer:
         Parse redemption history from the profile page and update the code tracker
         """
         if not self.profile_response:
+            self.logger.debug(
+                "No profile response available for redemption history update"
+            )
             return
+
+        self.logger.debug("Extracting redemption history from profile page")
+        print("\n===== UPDATING REDEMPTION HISTORY =====")
+        print(f"Response URL: {self.profile_response.url}")
 
         redemption_history = HtmlParser.extract_redemption_history(
             self.profile_response.text
         )
+
+        self.logger.debug(f"Found {len(redemption_history)} redemption history records")
+
+        # Save the raw HTML for debugging if no history was found
+        if not redemption_history:
+            print("No redemption history found. Saving HTML for debugging...")
+            try:
+                with open("debug_profile_page.html", "w", encoding="utf-8") as f:
+                    f.write(self.profile_response.text)
+                print("Saved profile page HTML to debug_profile_page.html")
+            except Exception as e:
+                print(f"Error saving debug HTML: {e}")
+
+        # Make sure the CodeTracker is tracking the redemption records
         if redemption_history:
+            for record in redemption_history:
+                self.logger.debug(f"History record: {record}")
+
+                # Add to both code_tracker and RedeemCodeManager if available
+                code = record.get("code")
+                hero = record.get("hero")
+                date = record.get("date")
+
+                if code and hero:
+                    # Add to code tracker
+                    self.code_tracker.add_redeemed_code(code, hero, date)
+
+                    # Direct access to redeemed_codes_manager if available
+                    if (
+                        hasattr(self, "redeemed_codes_manager")
+                        and self.redeemed_codes_manager
+                    ):
+                        # Try to find hero_id for this hero name
+                        hero_id = ""
+                        heroes = self.hero_config.get("heroes", {})
+                        for name, id in heroes.items():
+                            if name.lower() == hero.lower():
+                                hero_id = id
+                                break
+
+                        # Add directly to redeemed_codes_manager
+                        self.redeemed_codes_manager.mark_as_redeemed(
+                            self.username, hero, hero_id, code, "imported_from_history"
+                        )
+                        print(
+                            f"Directly added to redeemed_codes_manager: {code} for {hero}"
+                        )
+                    else:
+                        print("RedeemCodeManager not available for direct update")
+
             added_records = self.code_tracker.add_redemption_history(redemption_history)
             if added_records > 0:
                 self.logger.info(
                     f"Added {added_records} new redemption records from history"
                 )
+            else:
+                self.logger.debug("No new redemption records were added")
+        else:
+            self.logger.warning("No redemption history found on the profile page")
+        print("===== REDEMPTION HISTORY UPDATE COMPLETE =====\n")
 
     def update_hero_list(self) -> None:
         """

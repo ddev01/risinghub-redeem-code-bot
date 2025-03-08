@@ -112,19 +112,31 @@ class CSVLogger:
         )
 
     def log_success(
-        self, hero_name: str, hero_id: str, code: str, items_data: Dict[str, List]
+        self, code: str, hero_name: str, hero_id: str, items: List[str] = None
     ) -> None:
         """
         Log successful redemption items to CSV
-        Items data format: {'item_id': [duration_type, duration, name, category]}
 
         Args:
+            code: Redemption code used
             hero_name: Name of the hero
             hero_id: ID of the hero
-            code: Redemption code used
-            items_data: Dictionary of items received
+            items: List of item names or dictionary of item details
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Convert simple item list to dictionary format if needed
+        items_data = {}
+        if isinstance(items, list):
+            # Simple list of items, convert to expected format
+            for i, item_name in enumerate(items):
+                items_data[f"import_{i}"] = ["imported", "0", item_name, "history"]
+        elif isinstance(items, dict):
+            # Already in right format
+            items_data = items
+        else:
+            # No valid items, create a generic entry
+            items_data = {"unknown": ["unknown", "0", "Unknown Item", "imported"]}
 
         # Log each item as a separate row
         with open(self.success_log_file, "a", newline="") as f:

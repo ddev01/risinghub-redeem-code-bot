@@ -145,6 +145,10 @@ class AccountProcessor:
             session, self.base_url, self.username, response, self.logger, csv_logger
         )
 
+        # Make sure the redeemer has direct access to the redeemed codes manager
+        if not hasattr(redeemer, "redeemed_codes_manager"):
+            redeemer.redeemed_codes_manager = self.redeemed_codes_manager
+
         # Set priority information
         self.hero_manager.set_priority_heroes(
             priority_nat_hero=self.account_config.get("priority_nat_hero", ""),
@@ -157,6 +161,16 @@ class AccountProcessor:
         if not heroes:
             self.logger.error(f"No heroes found for account {self.username}. Skipping.")
             return False, None
+
+        # Explicitly fetch and process redemption history
+        self.logger.info("Fetching redemption history from profile page")
+        redemption_history = redeemer.get_redemption_history()
+        if redemption_history:
+            self.logger.info(
+                f"Found {len(redemption_history)} redemption records in history"
+            )
+        else:
+            self.logger.warning("No redemption history found on profile page")
 
         # Store redeemer for later use
         self.redeemer = redeemer
