@@ -16,39 +16,34 @@ class RequestHandler:
     def create_default_headers(base_url: str) -> Dict[str, str]:
         """
         Create default headers for HTTP requests.
-
-        Args:
-            base_url: The base URL for the request
-
-        Returns:
-            A dictionary of default headers
         """
         return {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": base_url + "profile",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
             "Origin": base_url.rstrip("/"),
-            "Accept": "*/*",
         }
 
     @staticmethod
     def get(
-        session: requests.Session, url: str, headers: Optional[Dict[str, str]] = None
+        session: requests.Session,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        allow_redirects: bool = True,
     ) -> Optional[requests.Response]:
         """
-        Send a GET request with error handling.
-
-        Args:
-            session: The requests session to use
-            url: The URL to request
-            headers: Optional headers to include
-
-        Returns:
-            The response if successful, None otherwise
+        Send a GET request and handle errors.
         """
         try:
-            return session.get(url, headers=headers)
-        except requests.exceptions.RequestException:
+            headers = headers or {}
+            response = session.get(
+                url, headers=headers, allow_redirects=allow_redirects, timeout=30
+            )
+            return response
+        except requests.RequestException:
             return None
 
     @staticmethod
@@ -57,22 +52,22 @@ class RequestHandler:
         url: str,
         data: Dict[str, Any],
         headers: Optional[Dict[str, str]] = None,
+        allow_redirects: bool = True,
     ) -> Optional[requests.Response]:
         """
-        Send a POST request with error handling.
-
-        Args:
-            session: The requests session to use
-            url: The URL to request
-            data: The data to send
-            headers: Optional headers to include
-
-        Returns:
-            The response if successful, None otherwise
+        Send a POST request and handle errors.
         """
         try:
-            return session.post(url, data=data, headers=headers)
-        except requests.exceptions.RequestException:
+            headers = headers or {}
+            response = session.post(
+                url,
+                data=data,
+                headers=headers,
+                allow_redirects=allow_redirects,
+                timeout=30,
+            )
+            return response
+        except requests.RequestException:
             return None
 
 

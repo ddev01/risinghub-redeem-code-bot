@@ -23,7 +23,7 @@ class ConsoleLogger:
     Console logger with emoji indicators and formatted output.
     """
 
-    def __init__(self, min_level: LogLevel = LogLevel.INFO):
+    def __init__(self, min_level: LogLevel = LogLevel.DEBUG):
         """
         Initialize the console logger.
 

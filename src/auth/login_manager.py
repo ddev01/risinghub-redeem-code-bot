@@ -5,8 +5,10 @@ Authentication and session management for the RisingHub code redemption bot.
 import json
 import time
 import requests
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
+from bs4 import BeautifulSoup
 
 from src.utils.http import RequestHandler, HtmlParser
 from src.logging.console import ConsoleLogger, LogLevel
@@ -40,10 +42,6 @@ class LoginManager:
         """
         Log in to the website
 
-        Args:
-            username: The username to log in with
-            password: The password to log in with
-
         Returns:
             The authenticated session if successful, None otherwise
         """
@@ -65,7 +63,7 @@ class LoginManager:
         self.session = requests.Session()
 
         try:
-            # First request to get CSRF token
+            # Get login page to obtain CSRF token
             response = RequestHandler.get(self.session, login_url)
             if not response:
                 self.logger.error("Failed to connect to login page")
@@ -80,6 +78,7 @@ class LoginManager:
             # Prepare login data
             login_data = {
                 "_token": token,
+                "username": username,
                 "login": username,
                 "password": password,
                 "remember": "1",
@@ -90,10 +89,11 @@ class LoginManager:
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Referer": login_url,
                 "Origin": self.base_url.rstrip("/"),
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             }
 
             response = RequestHandler.post(
-                self.session, login_url, login_data, login_headers
+                self.session, login_url, login_data, login_headers, allow_redirects=True
             )
             if not response:
                 self.logger.error("Login request failed")
@@ -120,16 +120,17 @@ class LoginManager:
 
     def save_cookies(self) -> bool:
         """
-        Save session cookies to file
+        Save session cookies to a file
 
         Returns:
             True if cookies were saved successfully, False otherwise
         """
-        try:
-            # Extract cookies from session
-            cookies = self.session.cookies.get_dict()
+        if not self.session:
+            return False
 
-            # Save cookies to file
+        try:
+            cookies = {name: value for name, value in self.session.cookies.items()}
+
             with open(self.cookie_file, "w") as f:
                 json.dump(cookies, f)
 
@@ -140,18 +141,21 @@ class LoginManager:
 
     def load_cookies(self) -> bool:
         """
-        Load cookies from file into session
+        Load cookies from file into the session
 
         Returns:
             True if cookies were loaded successfully, False otherwise
         """
+        if not os.path.exists(self.cookie_file):
+            return False
+
         try:
             with open(self.cookie_file, "r") as f:
                 cookies = json.load(f)
 
-            # Add cookies to session
-            for key, value in cookies.items():
-                self.session.cookies.set(key, value)
+            self.session = requests.Session()
+            for name, value in cookies.items():
+                self.session.cookies.set(name, value)
 
             return True
         except FileNotFoundError:
@@ -163,21 +167,45 @@ class LoginManager:
 
     def verify_session(self) -> bool:
         """
-        Verify if the current session is authenticated
+        Verify if the current session is still authenticated
 
         Returns:
-            True if session is valid, False otherwise
+            True if the session is valid, False otherwise
         """
-        try:
-            # Try to access a protected page
-            profile_url = f"{self.base_url}profile"
-            response = RequestHandler.get(self.session, profile_url)
+        if not self.session:
+            return False
 
-            if not response:
+        profile_url = f"{self.base_url}profile"
+        try:
+            response = RequestHandler.get(self.session, profile_url, logger=self.logger)
+
+            if not response or response.status_code != 200:
                 return False
 
-            # Check if we got a valid profile page response
-            return "My Profile" in response.text or "Dashboard" in response.text
+            # Check for indicators of being logged in
+            return "logout" in response.text.lower() or "Logout" in response.text
+
+        except Exception as e:
+            self.logger.error(f"Session verification failed: {str(e)}")
+            return False
+
+    def test_connection(self) -> bool:
+        """
+        Test connectivity to the website and verify login page is accessible
+
+        Returns:
+            True if the connection was successful, False otherwise
+        """
+        login_url = f"{self.base_url}login"
+
+        try:
+            response = RequestHandler.get(self.session, login_url)
+            if not response or response.status_code != 200:
+                return False
+
+            # Connection was successful
+            return True
+
         except Exception:
             return False
 
@@ -188,32 +216,24 @@ def get_authenticated_session(
     """
     Get an authenticated session
 
-    Args:
-        base_url: The base URL for authentication
-        username: The username to authenticate with
-        password: The password to authenticate with
-        cookie_file: Path to the cookie file
-        logger: Optional console logger
-
     Returns:
-        A tuple of (session, response) if successful, (None, None) otherwise
+        A tuple with the authenticated session and profile response,
+        or (None, None) if authentication failed
     """
-    logger = logger or ConsoleLogger()
+    # Create login manager
+    login_manager = LoginManager(base_url, cookie_file)
 
-    # Initialize login manager
-    login_manager = LoginManager(base_url, cookie_file, logger)
+    # Test connection to the website
+    if not login_manager.test_connection():
+        return None, None
 
     # Try to log in
     session = login_manager.login(username, password)
     if not session:
         return None, None
 
-    # Get the response for the redeem panel to use later
-    try:
-        redeem_url = f"{base_url}profile#redeem-panel"
-        response = RequestHandler.get(session, redeem_url)
+    # Get profile page
+    profile_url = f"{base_url}profile"
+    profile_response = RequestHandler.get(session, profile_url)
 
-        return session, response
-    except Exception as e:
-        logger.error(f"Failed to access redeem panel: {str(e)}")
-        return session, None
+    return session, profile_response
