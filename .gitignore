@@ -53,4 +53,6 @@ ENV/
 .vscode/
 *.swp
 *.swo
+
+# Redemption codes
 redemption_codes.txt
