@@ -10,6 +10,137 @@ from pathlib import Path
 import csv
 from datetime import datetime
 
+# Hardcoded base URL
+BASE_URL = "https://risinghub.net/"
+
+
+class AccountManager:
+    """
+    Manages multiple account configurations
+    """
+
+    def __init__(self, config_file: str = "accounts.json"):
+        """
+        Initialize with configuration file path
+        """
+        self.config_file = config_file
+        self.config = self._load_config()
+
+        # Create necessary directories
+        self._ensure_directories()
+
+    def _load_config(self) -> Dict[str, Any]:
+        """
+        Load account configuration from JSON file
+        """
+        try:
+            with open(self.config_file, "r") as f:
+                # Remove JavaScript-style comments from JSON
+                content = self._remove_comments(f.read())
+                config = json.loads(content)
+
+                print(f"Loaded configuration from {self.config_file}")
+                print(f"Found {len(config.get('accounts', []))} account(s)")
+                return config
+        except FileNotFoundError:
+            print(f"Configuration file not found: {self.config_file}")
+            print("Creating a template configuration file...")
+            self._create_template_config()
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON in {self.config_file}: {e}")
+            print("Please check the format of your configuration file.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error loading configuration: {e}")
+            sys.exit(1)
+
+    def _remove_comments(self, json_str: str) -> str:
+        """
+        Remove JavaScript-style comments from JSON string
+        """
+        lines = json_str.split("\n")
+        result = []
+
+        for line in lines:
+            # Remove everything after //
+            comment_pos = line.find("//")
+            if comment_pos >= 0:
+                line = line[:comment_pos]
+
+            # Only add non-empty lines
+            if line.strip():
+                result.append(line)
+
+        return "\n".join(result)
+
+    def _create_template_config(self) -> None:
+        """
+        Create a template configuration file
+        """
+        template = {
+            "accounts": [
+                {
+                    "username": "your_username",
+                    "password": "your_password",
+                    "priority_nat_hero": "yournatgunner",
+                    "priority_roy_hero": "yourroygunner",
+                    "priority_faction": "nat",
+                }
+            ],
+            "settings": {"rate_limit_delay": 2.0, "codes_file": "redemption_codes.txt"},
+        }
+
+        with open(self.config_file, "w") as f:
+            json.dump(template, f, indent=2)
+
+        print(f"Created template configuration file at {self.config_file}")
+        print(
+            "Please edit this file with your account information and run the script again."
+        )
+
+    def _ensure_directories(self) -> None:
+        """
+        Create necessary directories for sessions and logs
+        """
+        # Create base directories
+        Path("sessions").mkdir(exist_ok=True)
+        Path("logs").mkdir(exist_ok=True)
+
+        # Create directories for each account
+        for account in self.get_accounts():
+            username = account.get("username", "unknown")
+            Path(f"sessions/{username}").mkdir(exist_ok=True)
+            Path(f"logs/{username}").mkdir(exist_ok=True)
+
+    def get_accounts(self) -> List[Dict[str, str]]:
+        """
+        Get all configured accounts
+        """
+        return self.config.get("accounts", [])
+
+    def get_settings(self) -> Dict[str, Any]:
+        """
+        Get global settings
+        """
+        return self.config.get("settings", {})
+
+    def get_cookie_file(self, username: str) -> str:
+        """
+        Get cookie file path for a specific account
+        """
+        return f"sessions/{username}/session_cookies.json"
+
+    def get_log_files(self, username: str) -> Dict[str, str]:
+        """
+        Get log file paths for a specific account
+        """
+        return {
+            "success": f"logs/{username}/{username}_redemption_success.csv",
+            "failure": f"logs/{username}/{username}_redemption_failure.csv",
+            "info": f"logs/{username}/{username}_redemption_info.csv",
+        }
+
 
 class LoginManager:
     """
@@ -43,8 +174,6 @@ class LoginManager:
 
         try:
             login_url = self.base_url + "login"
-            print(f"Login URL: {login_url}")
-
             # Remove Accept-Encoding header if it exists to let requests handle compression
             self.session.headers.pop("Accept-Encoding", None)
 
@@ -146,7 +275,7 @@ class LoginManager:
             with open(self.cookie_file, "r") as f:
                 data = json.load(f)
 
-            # Check if cookies are expired (24 hours)
+            # Check if cookies are expired (7 days)
             if time.time() - data.get("timestamp", 0) > 604800:
                 print("Cookies have expired")
                 return False
@@ -200,13 +329,13 @@ class LoginManager:
 
 
 def get_authenticated_session(
-    base_url: str, username: str, password: str
+    base_url: str, username: str, password: str, cookie_file: str
 ) -> tuple[Optional[requests.Session], Optional[requests.Response]]:
     """
     Gets an authenticated session either by loading cookies or logging in
     Returns both the session and the response from the redeem panel
     """
-    login_manager = LoginManager(base_url)
+    login_manager = LoginManager(base_url, cookie_file=cookie_file)
 
     # Try to load existing cookies first
     if login_manager.load_cookies():
@@ -818,6 +947,80 @@ class CodeRedeemer:
         return overall_success
 
 
+def process_account(
+    account_config: Dict[str, str], codes: List[str], rate_limit_delay: float
+) -> None:
+    """
+    Process redemption codes for a single account
+    """
+    username = account_config.get("username")
+    password = account_config.get("password")
+
+    # Use the hardcoded base URL instead of getting it from account_config
+    base_url = BASE_URL
+
+    if not all([username, password]):
+        print(f"Missing required configuration for account {username}. Skipping.")
+        return
+
+    # Ensure base_url has trailing slash
+    if not base_url.endswith("/"):
+        base_url += "/"
+
+    # Get cookie file path for this account
+    cookie_file = f"sessions/{username}/session_cookies.json"
+
+    print(f"\n=== Processing account: {username} ===")
+    print(f"Using base URL: {base_url}")
+
+    # Get authenticated session
+    session, response = get_authenticated_session(
+        base_url, username, password, cookie_file
+    )
+
+    if not session:
+        print(f"Failed to authenticate for account {username}. Skipping.")
+        return
+
+    # Create logger with account-specific paths
+    logger = CSVLogger(
+        success_log_file=f"logs/{username}/{username}_redemption_success.csv",
+        failure_log_file=f"logs/{username}/{username}_redemption_failure.csv",
+        info_log_file=f"logs/{username}/{username}_redemption_info.csv",
+    )
+
+    # Set environment variables for the account preferences
+    # This is used by CodeRedeemer.redeem_code_with_priority
+    os.environ["PRIORITY_NAT_HERO"] = account_config.get("priority_nat_hero", "")
+    os.environ["PRIORITY_ROY_HERO"] = account_config.get("priority_roy_hero", "")
+    os.environ["PRIORITY_FACTION"] = account_config.get("priority_faction", "")
+
+    # Initialize code redeemer
+    redeemer = CodeRedeemer(session, base_url, response, logger)
+
+    # Display hero information
+    heroes = redeemer.extract_hero_ids()
+    if not heroes:
+        print(f"No heroes found for account {username}. Skipping.")
+        return
+
+    # Process each code with rate limiting
+    print(f"\nProcessing {len(codes)} redemption codes for account {username}...")
+
+    for i, code in enumerate(codes):
+        print(
+            f"\n--- [{i+1}/{len(codes)}] Attempting to redeem code: {code} for {username} ---"
+        )
+        redeemer.redeem_code_with_priority(code)
+
+        # Sleep between redemptions to avoid rate limiting (except after the last one)
+        if i < len(codes) - 1 and rate_limit_delay > 0:
+            print(f"Waiting {rate_limit_delay} second(s) before next redemption...")
+            time.sleep(rate_limit_delay)
+
+    print(f"\nRedemption process complete for account {username}.")
+
+
 def load_redemption_codes(file_path: str) -> list[str]:
     """
     Load redemption codes from a file, one code per line
@@ -828,7 +1031,10 @@ def load_redemption_codes(file_path: str) -> list[str]:
         with open(file_path, "r") as f:
             for line in f:
                 line = line.strip()
-                # Skip empty lines and comments
+                # Remove inline comments
+                if "#" in line:
+                    line = line.split("#")[0].strip()
+                # Skip empty lines and comment lines
                 if line and not line.startswith("#"):
                     codes.append(line)
 
@@ -846,40 +1052,24 @@ def main() -> None:
     """
     Main function
     """
-    load_dotenv(override=True)
+    # Load configuration from accounts.json
+    account_manager = AccountManager()
 
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-    base_url = os.getenv("BASEURL")
+    # Get accounts and settings
+    accounts = account_manager.get_accounts()
+    settings = account_manager.get_settings()
 
-    # Get codes file path from environment or use default
-    codes_file = os.getenv("CODES_FILE", "redemption_codes.txt")
-
-    # Get rate limit delay (in seconds) from environment or use default
-    rate_limit_delay = float(os.getenv("RATE_LIMIT_DELAY", "0.3"))
-
-    if not all([username, password, base_url]):
-        print("Error: Missing required environment variables. Please check .env file.")
+    if not accounts:
+        print("No accounts configured. Please edit accounts.json and try again.")
         sys.exit(1)
 
-    # Get authenticated session and possibly response
-    session, response = get_authenticated_session(base_url, username, password)
+    # Get rate limit delay from settings
+    rate_limit_delay = float(settings.get("rate_limit_delay", 2.0))
 
-    if not session:
-        print("Failed to authenticate. Exiting.")
-        sys.exit(1)
+    # Get codes file path from settings
+    codes_file = settings.get("codes_file", "redemption_codes.txt")
 
-    # Create logger with customizable file paths
-    logger = CSVLogger(
-        success_log_file=os.getenv("SUCCESS_LOG", "logs/redemption_success.csv"),
-        failure_log_file=os.getenv("FAILURE_LOG", "logs/redemption_failure.csv"),
-        info_log_file=os.getenv("INFO_LOG", "logs/redemption_info.csv"),
-    )
-
-    # Initialize code redeemer with existing response if available
-    redeemer = CodeRedeemer(session, base_url, response, logger)
-
-    # Load redemption codes from file
+    # Load redemption codes
     codes = load_redemption_codes(codes_file)
     if not codes:
         print(
@@ -896,24 +1086,23 @@ def main() -> None:
             print(f"Created example file at {codes_file}")
         sys.exit(0)
 
-    # Process each code with rate limiting
+    # Process each account
     print(
-        f"\nProcessing {len(codes)} redemption codes with {rate_limit_delay} second(s) delay between attempts..."
+        f"Starting redemption process for {len(accounts)} accounts, {len(codes)} codes each"
     )
+    for i, account in enumerate(accounts):
+        print(f"\n=== Account {i+1}/{len(accounts)} ===")
+        process_account(account, codes, rate_limit_delay)
 
-    for i, code in enumerate(codes):
-        print(f"\n--- [{i+1}/{len(codes)}] Attempting to redeem code: {code} ---")
-        redeemer.redeem_code_with_priority(code)
+        # Add a delay between accounts
+        if i < len(accounts) - 1:
+            delay = max(
+                rate_limit_delay * 2, 5.0
+            )  # Use at least 5 seconds between accounts
+            print(f"\nWaiting {delay} seconds before processing next account...")
+            time.sleep(delay)
 
-        # Sleep between redemptions to avoid rate limiting (except after the last one)
-        if i < len(codes) - 1 and rate_limit_delay > 0:
-            print(f"Waiting {rate_limit_delay} second(s) before next redemption...")
-            time.sleep(rate_limit_delay)
-
-    print("\nRedemption process complete. Check CSV logs for details.")
-    print(f"  Success log: {logger.success_log_file}")
-    print(f"  Info log: {logger.info_log_file}")
-    print(f"  Failure log: {logger.failure_log_file}")
+    print("\nAll accounts processed successfully!")
 
 
 if __name__ == "__main__":

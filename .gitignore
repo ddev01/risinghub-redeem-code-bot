@@ -7,9 +7,19 @@ session_cookies.json
 cookies/
 
 # Ignore log files but keep the logs directory
-logs/*.csv
-logs/*.log
+logs/
+logs/**/*.csv
+logs/**/*.log
 *.log
+
+# Ignore sessions directory
+sessions/
+sessions/**/*
+
+# Ignore account configuration
+accounts.json
+# But keep the template
+!accounts_template.json
 
 # Python
 __pycache__/
