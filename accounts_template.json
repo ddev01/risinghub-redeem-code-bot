@@ -1,19 +1,19 @@
 {
 	"accounts": [
-    {
-		"username": "firstusername",
-		"password": "yourpassword",
-		"priority_nat_hero": "natherousername",
-		"priority_roy_hero": "royherousername",
-		"priority_faction": "nat"
-    },
-    {
-		"username": "secondusername",
-		"password": "secondpassword",
-		"priority_nat_hero": "natherousername",
-		"priority_roy_hero": "royherousername",
-		"priority_faction": "roy"
-    }
+		{
+			"username": "firstusername",
+			"password": "yourpassword",
+			"priority_nat_hero": "natherousername",
+			"priority_roy_hero": "royherousername",
+			"priority_faction": "nat"
+		},
+		{
+			"username": "secondusername",
+			"password": "secondpassword",
+			"priority_nat_hero": "natherousername",
+			"priority_roy_hero": "royherousername",
+			"priority_faction": "roy"
+		}
 	],
 	"settings": {
 		"rate_limit_delay": 2.0,

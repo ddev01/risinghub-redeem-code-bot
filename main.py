@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
-from typing import Optional, Union, Dict, List, Any, Tuple
+from typing import Optional, Union, Dict, List, Any, Tuple, Set
 import sys
 import json
 import time
@@ -12,6 +12,165 @@ from datetime import datetime
 
 # Hardcoded base URL
 BASE_URL = "https://risinghub.net/"
+
+
+class RedeemedCodesManager:
+    """
+    Manages tracking of redeemed codes across all accounts and heroes
+    """
+
+    def __init__(self, file_path: str = "logs/redeemed_codes.csv"):
+        """
+        Initialize with file path for storing redeemed codes
+        """
+        self.file_path = file_path
+        self.redeemed_codes = {}  # Dict of {username: {hero_name: set(codes)}}
+
+        # Ensure logs directory exists
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+
+        self._load_redeemed_codes()
+
+    def _initialize_file(self) -> None:
+        """
+        Initialize the redeemed codes file with headers if it doesn't exist
+        """
+        file_path = Path(self.file_path)
+
+        if not file_path.exists():
+            with open(self.file_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    ["Timestamp", "Username", "Hero Name", "Hero ID", "Code", "Status"]
+                )
+
+    def _load_redeemed_codes(self) -> None:
+        """
+        Load previously redeemed codes from CSV file
+        """
+        self._initialize_file()
+
+        try:
+            with open(self.file_path, "r") as f:
+                reader = csv.reader(f)
+                # Skip header
+                next(reader, None)
+
+                account_count = 0
+                code_count = 0
+
+                for row in reader:
+                    if len(row) >= 5:
+                        timestamp, username, hero_name, hero_id, code, status = (
+                            row + [""] if len(row) == 5 else row
+                        )
+
+                        # Skip invalid entries
+                        if not all([username, hero_name, code]):
+                            continue
+
+                        # Initialize nested dictionaries if needed
+                        if username not in self.redeemed_codes:
+                            self.redeemed_codes[username] = {}
+                            account_count += 1
+
+                        if hero_name not in self.redeemed_codes[username]:
+                            self.redeemed_codes[username][hero_name] = set()
+
+                        # Add code to the set
+                        self.redeemed_codes[username][hero_name].add(code)
+                        code_count += 1
+
+                if account_count > 0:
+                    print(
+                        f"Loaded {code_count} redeemed codes for {account_count} accounts"
+                    )
+
+        except FileNotFoundError:
+            # No need to print anything for a new file
+            self._initialize_file()
+        except Exception as e:
+            print(f"Error loading redeemed codes: {e}")
+
+    def is_code_redeemed(self, username: str, hero_name: str, code: str) -> bool:
+        """
+        Check if a code has already been redeemed for a specific hero
+        """
+        return (
+            username in self.redeemed_codes
+            and hero_name in self.redeemed_codes[username]
+            and code in self.redeemed_codes[username][hero_name]
+        )
+
+    def mark_as_redeemed(
+        self,
+        username: str,
+        hero_name: str,
+        hero_id: str,
+        code: str,
+        status: str = "success",
+    ) -> None:
+        """
+        Mark a code as redeemed for a specific hero
+        """
+        # Update in-memory structure
+        if username not in self.redeemed_codes:
+            self.redeemed_codes[username] = {}
+
+        if hero_name not in self.redeemed_codes[username]:
+            self.redeemed_codes[username][hero_name] = set()
+
+        self.redeemed_codes[username][hero_name].add(code)
+
+        # Write to CSV file
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with open(self.file_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([timestamp, username, hero_name, hero_id, code, status])
+
+    def get_unredeemed_codes(
+        self, username: str, hero_names: List[str], codes: List[str]
+    ) -> Dict[str, List[str]]:
+        """
+        Get codes that haven't been redeemed yet for each hero
+        Returns a dictionary with hero names as keys and lists of unredeemed codes as values
+        """
+        result = {}
+
+        for hero_name in hero_names:
+            unredeemed_codes = []
+
+            for code in codes:
+                if not self.is_code_redeemed(username, hero_name, code):
+                    unredeemed_codes.append(code)
+
+            result[hero_name] = unredeemed_codes
+
+        return result
+
+    def is_fully_redeemed(
+        self, username: str, hero_names: List[str], code: str
+    ) -> bool:
+        """
+        Check if a code has been redeemed by all heroes of an account
+        Returns True if all heroes have redeemed (or attempted to redeem) the code
+        """
+        if username not in self.redeemed_codes:
+            return False
+
+        # For each hero, check if they've redeemed this code
+        for hero_name in hero_names:
+            # If any hero hasn't tried this code yet, return False
+            if (
+                hero_name not in self.redeemed_codes[username]
+                or code not in self.redeemed_codes[username][hero_name]
+            ):
+                return False
+
+        # If we get here, all heroes have redeemed or attempted to redeem this code
+        return True
 
 
 class AccountManager:
@@ -39,8 +198,11 @@ class AccountManager:
                 content = self._remove_comments(f.read())
                 config = json.loads(content)
 
-                print(f"Loaded configuration from {self.config_file}")
-                print(f"Found {len(config.get('accounts', []))} account(s)")
+                # Print this only when called directly from __init__, not from other methods
+                if not hasattr(self, "config"):
+                    print(
+                        f"Loaded configuration from {self.config_file} with {len(config.get('accounts', []))} account(s)"
+                    )
                 return config
         except FileNotFoundError:
             print(f"Configuration file not found: {self.config_file}")
@@ -86,13 +248,15 @@ class AccountManager:
                     "priority_nat_hero": "yournatgunner",
                     "priority_roy_hero": "yourroygunner",
                     "priority_faction": "nat",
+                    "heroes": {},  # Will store hero information after first login
                 }
             ],
             "settings": {"rate_limit_delay": 2.0, "codes_file": "redemption_codes.txt"},
         }
 
         with open(self.config_file, "w") as f:
-            json.dump(template, f, indent=2)
+            # Use tab indentation to match the user's preference
+            json.dump(template, f, indent="\t")
 
         print(f"Created template configuration file at {self.config_file}")
         print(
@@ -113,7 +277,7 @@ class AccountManager:
             Path(f"sessions/{username}").mkdir(exist_ok=True)
             Path(f"logs/{username}").mkdir(exist_ok=True)
 
-    def get_accounts(self) -> List[Dict[str, str]]:
+    def get_accounts(self) -> List[Dict[str, Any]]:
         """
         Get all configured accounts
         """
@@ -140,6 +304,43 @@ class AccountManager:
             "failure": f"logs/{username}/{username}_redemption_failure.csv",
             "info": f"logs/{username}/{username}_redemption_info.csv",
         }
+
+    def update_account_heroes(self, username: str, heroes: Dict[str, str]) -> None:
+        """
+        Update the heroes information for a specific account
+        """
+        accounts = self.get_accounts()
+
+        for account in accounts:
+            if account.get("username") == username:
+                account["heroes"] = heroes
+                break
+
+        # Update the config file
+        self.config["accounts"] = accounts
+        self._save_config()
+
+    def _save_config(self) -> None:
+        """
+        Save the current configuration to the config file
+        """
+        with open(self.config_file, "w") as f:
+            # Use tab indentation instead of spaces with a size of 4
+            json.dump(self.config, f, indent="\t")
+
+        print(f"Updated configuration saved to {self.config_file}")
+
+    def get_account_heroes(self, username: str) -> Dict[str, str]:
+        """
+        Get the heroes for a specific account
+        """
+        accounts = self.get_accounts()
+
+        for account in accounts:
+            if account.get("username") == username:
+                return account.get("heroes", {})
+
+        return {}
 
 
 class LoginManager:
@@ -369,6 +570,8 @@ class CSVLogger:
         success_log_file: str = "logs/redemption_success.csv",
         failure_log_file: str = "logs/redemption_failure.csv",
         info_log_file: str = "logs/redemption_info.csv",
+        username: str = "",
+        redeemed_codes_manager: Optional[RedeemedCodesManager] = None,
     ):
         """
         Initialize with file paths for success, failure and info logs
@@ -380,6 +583,8 @@ class CSVLogger:
         self.success_log_file = success_log_file
         self.failure_log_file = failure_log_file
         self.info_log_file = info_log_file
+        self.username = username
+        self.redeemed_codes_manager = redeemed_codes_manager or RedeemedCodesManager()
 
         # Ensure files exist with headers
         self._initialize_success_log()
@@ -507,6 +712,12 @@ class CSVLogger:
                         ]
                     )
 
+        # Also mark the code as redeemed in our tracking system
+        if self.username and self.redeemed_codes_manager:
+            self.redeemed_codes_manager.mark_as_redeemed(
+                self.username, hero_name, hero_id, code, "success"
+            )
+
         print(
             f"Logged {len(items_data)} successful item redemptions to {self.success_log_file}"
         )
@@ -542,6 +753,16 @@ class CSVLogger:
                     potential_items,
                     raw_response,
                 ]
+            )
+
+        # For "already_redeemed" and "wrong_hero_class" cases, track in our system
+        if (
+            info_type in ["already_redeemed", "wrong_hero_class"]
+            and self.username
+            and self.redeemed_codes_manager
+        ):
+            self.redeemed_codes_manager.mark_as_redeemed(
+                self.username, hero_name, hero_id, code, info_type
             )
 
     def log_failure(
@@ -667,7 +888,7 @@ class CodeRedeemer:
                     error_message="No CSRF token found",
                     raw_response="",
                 )
-            print(f"No CSRF token found")
+            print(f"Error: No CSRF token found")
             return False
 
         # If hero_id wasn't provided, try to extract it
@@ -726,14 +947,13 @@ class CodeRedeemer:
             redeem_url = self.base_url + "profile/redeem"
             response = self.session.post(redeem_url, data=payload, headers=headers)
 
-            # Print minimal output
-            print(f"Response status code: {response.status_code}")
+            # Print minimal output for status code
+            status_message = f"Response: {response.status_code}"
 
             # Check if the request was successful
             if response.status_code == 200:
                 try:
                     result = response.json()
-                    print(f"Response content: {result}")
 
                     # Handle successful redemption
                     if (
@@ -743,6 +963,15 @@ class CodeRedeemer:
                     ):
                         # Extract items data
                         items_data = result[1] if len(result) > 1 else {}
+
+                        # Show success message with items
+                        item_names = []
+                        for item_id, details in items_data.items():
+                            if len(details) >= 3:  # Make sure we have at least the name
+                                item_names.append(details[2])
+
+                        items_str = ", ".join(item_names) if item_names else "no items"
+                        print(f"✅ SUCCESS: Code redeemed for {items_str}")
 
                         # Log successful redemption
                         if items_data:
@@ -767,6 +996,9 @@ class CodeRedeemer:
                             isinstance(error_data, str)
                             and "can't use this code again" in error_data
                         ):
+                            print(
+                                "ℹ️ Already redeemed: Code was already used by this hero"
+                            )
                             self.logger.log_info(
                                 hero_name=hero_name,
                                 hero_id=hero_id,
@@ -784,9 +1016,14 @@ class CodeRedeemer:
                             potential_items = []
                             for item_id, item_info in error_data.items():
                                 if isinstance(item_info, list) and len(item_info) > 0:
-                                    potential_items.append(f"{item_id}: {item_info[0]}")
+                                    potential_items.append(item_info[0])
                                 else:
-                                    potential_items.append(f"{item_id}: unknown")
+                                    potential_items.append(f"Item #{item_id}")
+
+                            item_list = ", ".join(potential_items)
+                            print(
+                                f"⚠️ Wrong hero: Items available ({item_list}) but wrong hero type"
+                            )
 
                             self.logger.log_info(
                                 hero_name=hero_name,
@@ -795,12 +1032,21 @@ class CodeRedeemer:
                                 response_status=response.status_code,
                                 info_type="wrong_hero_class",
                                 message="Wrong hero class or faction for this code",
-                                potential_items=", ".join(potential_items),
+                                potential_items=", ".join(
+                                    (
+                                        f"{item_id}: {item_info[0]}"
+                                        if isinstance(item_info, list)
+                                        and len(item_info) > 0
+                                        else f"{item_id}: unknown"
+                                    )
+                                    for item_id, item_info in error_data.items()
+                                ),
                                 raw_response=str(result),
                             )
                             return False
                         # Case 3: Other error messages
                         else:
+                            print(f"ℹ️ Info: {error_data}")
                             self.logger.log_info(
                                 hero_name=hero_name,
                                 hero_id=hero_id,
@@ -813,6 +1059,7 @@ class CodeRedeemer:
                             return False
                     else:
                         # Unexpected response format - treat as actual failure
+                        print(f"❌ Error: Unexpected response format - {result}")
                         self.logger.log_failure(
                             hero_name=hero_name,
                             hero_id=hero_id,
@@ -826,6 +1073,7 @@ class CodeRedeemer:
 
                 except json.JSONDecodeError:
                     # Non-JSON response
+                    print(f"❌ Error: Invalid JSON response")
                     self.logger.log_failure(
                         hero_name=hero_name,
                         hero_id=hero_id,
@@ -835,10 +1083,10 @@ class CodeRedeemer:
                         error_message="Invalid JSON response",
                         raw_response=response.text[:500],  # Limit to 500 chars
                     )
-                    print(f"Response: {response.text}")
                     return False
             else:
                 # Non-200 response
+                print(f"❌ Error: HTTP {response.status_code}")
                 self.logger.log_failure(
                     hero_name=hero_name,
                     hero_id=hero_id,
@@ -848,11 +1096,11 @@ class CodeRedeemer:
                     error_message=f"HTTP error {response.status_code}",
                     raw_response=response.text[:500],  # Limit to 500 chars
                 )
-                print(f"Response: {response.text}")
                 return False
 
         except Exception as e:
             # Exception during request
+            print(f"❌ Error: {e}")
             self.logger.log_failure(
                 hero_name=hero_name,
                 hero_id=hero_id,
@@ -862,7 +1110,6 @@ class CodeRedeemer:
                 error_message=str(e),
                 raw_response=type(e).__name__,
             )
-            print(f"Error: {e}")
             return False
 
     def redeem_code_with_priority(self, code: str) -> bool:
@@ -903,7 +1150,6 @@ class CodeRedeemer:
         has_priorities = priority_faction and (priority_nat_hero or priority_roy_hero)
 
         if has_priorities:
-
             # First priority hero based on faction
             first_priority = (
                 priority_nat_hero if priority_faction == "nat" else priority_roy_hero
@@ -924,34 +1170,36 @@ class CodeRedeemer:
 
         # Combine prioritized heroes with remaining ones
         all_heroes_in_order = prioritized_heroes + remaining_heroes
-        print(f"Will try redeeming code in this order: {all_heroes_in_order}")
-
-        # For debugging: If you want to test with just one specific hero, uncomment and modify this line:
-        # all_heroes_in_order = [all_heroes_in_order[0]]  # Only use first hero in list
-        # all_heroes_in_order = [""]  # Only use a specific hero by name
+        print(f"Trying code on {len(all_heroes_in_order)} heroes in priority order")
 
         # Try redeeming for each hero in priority order
         overall_success = False
+        already_redeemed_count = 0
+        wrong_hero_count = 0
+
         for hero_name in all_heroes_in_order:
             hero_id = heroes[hero_name]
-            print(
-                f"\nAttempting to redeem code '{code}' for hero {hero_name} (ID: {hero_id})"
-            )
 
             # Call the consolidated redeem_code method with hero name
             result = self.redeem_code(code, hero_id, hero_name)
 
             if result:
+                print(f"✅ Successfully redeemed with hero {hero_name}")
                 overall_success = True
+                break  # Stop after first success
 
         return overall_success
 
 
 def process_account(
-    account_config: Dict[str, str], codes: List[str], rate_limit_delay: float
-) -> None:
+    account_config: Dict[str, str],
+    codes: List[str],
+    rate_limit_delay: float,
+    redeemed_codes_manager: RedeemedCodesManager,
+) -> bool:
     """
     Process redemption codes for a single account
+    Returns True if any server requests were made, False otherwise
     """
     username = account_config.get("username")
     password = account_config.get("password")
@@ -960,18 +1208,43 @@ def process_account(
     base_url = BASE_URL
 
     if not all([username, password]):
-        print(f"Missing required configuration for account {username}. Skipping.")
-        return
+        print(f"❌ Missing required configuration for account {username}. Skipping.")
+        return False
 
     # Ensure base_url has trailing slash
     if not base_url.endswith("/"):
         base_url += "/"
 
+    # Check if we already have hero information stored
+    account_manager = AccountManager()
+    stored_heroes = account_manager.get_account_heroes(username)
+
+    # If we have hero information, filter out codes that have already been tried on all heroes
+    print(f"\n🧑‍🚀 === Processing account: {username} ===")
+
+    if stored_heroes:
+        hero_count = len(stored_heroes)
+        print(f"📋 Found {hero_count} heroes in configuration")
+
+        # Filter out codes that have already been redeemed by all heroes
+        hero_names = list(stored_heroes.keys())
+        unredeemed_codes = []
+
+        for code in codes:
+            if not redeemed_codes_manager.is_fully_redeemed(username, hero_names, code):
+                unredeemed_codes.append(code)
+
+        if not unredeemed_codes:
+            print(f"✅ All codes have already been redeemed for all heroes. Skipping.")
+            return False  # No server requests made
+
+        print(f"🔍 Found {len(unredeemed_codes)} codes that need redemption")
+
+        # Update our working codes list
+        codes = unredeemed_codes
+
     # Get cookie file path for this account
     cookie_file = f"sessions/{username}/session_cookies.json"
-
-    print(f"\n=== Processing account: {username} ===")
-    print(f"Using base URL: {base_url}")
 
     # Get authenticated session
     session, response = get_authenticated_session(
@@ -979,14 +1252,19 @@ def process_account(
     )
 
     if not session:
-        print(f"Failed to authenticate for account {username}. Skipping.")
-        return
+        print(f"❌ Failed to authenticate for account {username}. Skipping.")
+        return True  # Authentication attempt counts as a server request
+
+    # We've made server requests by this point
+    made_server_requests = True
 
     # Create logger with account-specific paths
     logger = CSVLogger(
         success_log_file=f"logs/{username}/{username}_redemption_success.csv",
         failure_log_file=f"logs/{username}/{username}_redemption_failure.csv",
         info_log_file=f"logs/{username}/{username}_redemption_info.csv",
+        username=username,
+        redeemed_codes_manager=redeemed_codes_manager,
     )
 
     # Set environment variables for the account preferences
@@ -998,27 +1276,66 @@ def process_account(
     # Initialize code redeemer
     redeemer = CodeRedeemer(session, base_url, response, logger)
 
-    # Display hero information
+    # Extract hero information
     heroes = redeemer.extract_hero_ids()
     if not heroes:
-        print(f"No heroes found for account {username}. Skipping.")
-        return
+        print(f"❌ No heroes found for account {username}. Skipping.")
+        return True  # We still made server requests
 
-    # Process each code with rate limiting
-    print(f"\nProcessing {len(codes)} redemption codes for account {username}...")
+    # Store hero information in accounts.json if it's different from what we have
+    if heroes != stored_heroes:
+        print(f"📝 Updating hero information ({len(heroes)} heroes)")
+        account_manager.update_account_heroes(username, heroes)
 
-    for i, code in enumerate(codes):
-        print(
-            f"\n--- [{i+1}/{len(codes)}] Attempting to redeem code: {code} for {username} ---"
+    # If we already had hero information, we need to check each code for each hero
+    if stored_heroes:
+        # Get the detailed unredeemed codes for each hero
+        unredeemed_codes_by_hero = redeemed_codes_manager.get_unredeemed_codes(
+            username, list(heroes.keys()), codes
         )
-        redeemer.redeem_code_with_priority(code)
+        heroes_processed = 0
+        codes_processed = 0
 
-        # Sleep between redemptions to avoid rate limiting (except after the last one)
-        if i < len(codes) - 1 and rate_limit_delay > 0:
-            print(f"Waiting {rate_limit_delay} second(s) before next redemption...")
-            time.sleep(rate_limit_delay)
+        # Process each hero separately with their unredeemed codes
+        for hero_name, hero_codes in unredeemed_codes_by_hero.items():
+            if not hero_codes:
+                continue
 
-    print(f"\nRedemption process complete for account {username}.")
+            heroes_processed += 1
+            hero_id = heroes.get(hero_name)
+
+            if not hero_id:
+                print(f"⚠️ Hero {hero_name} not found in current hero list. Skipping.")
+                continue
+
+            print(f"🦸 Processing {len(hero_codes)} codes for hero {hero_name}")
+
+            for i, code in enumerate(hero_codes):
+                codes_processed += 1
+                print(f"🔑 [{i+1}/{len(hero_codes)}] Code: {code}")
+                redeemer.redeem_code(code, hero_id, hero_name)
+
+                # Sleep between redemptions to avoid rate limiting (except after the last one)
+                if i < len(hero_codes) - 1 and rate_limit_delay > 0:
+                    time.sleep(rate_limit_delay)
+
+        print(
+            f"🏁 Processed {codes_processed} redemption attempts across {heroes_processed} heroes"
+        )
+    else:
+        # Process each code with rate limiting using priority-based redemption
+        print(f"🔄 Processing {len(codes)} redemption codes")
+
+        for i, code in enumerate(codes):
+            print(f"🔑 [{i+1}/{len(codes)}] Code: {code}")
+            redeemer.redeem_code_with_priority(code)
+
+            # Sleep between redemptions to avoid rate limiting (except after the last one)
+            if i < len(codes) - 1 and rate_limit_delay > 0:
+                time.sleep(rate_limit_delay)
+
+    print(f"✅ Redemption process complete for account {username}")
+    return True  # We made server requests
 
 
 def load_redemption_codes(file_path: str) -> list[str]:
@@ -1038,13 +1355,14 @@ def load_redemption_codes(file_path: str) -> list[str]:
                 if line and not line.startswith("#"):
                     codes.append(line)
 
-        print(f"Loaded {len(codes)} redemption codes from {file_path}")
+        if codes:
+            print(f"📝 Loaded {len(codes)} redemption codes from {file_path}")
         return codes
     except FileNotFoundError:
-        print(f"Redemption codes file not found: {file_path}")
+        print(f"⚠️ Redemption codes file not found: {file_path}")
         return []
     except Exception as e:
-        print(f"Error loading redemption codes: {e}")
+        print(f"❌ Error loading redemption codes: {e}")
         return []
 
 
@@ -1060,7 +1378,7 @@ def main() -> None:
     settings = account_manager.get_settings()
 
     if not accounts:
-        print("No accounts configured. Please edit accounts.json and try again.")
+        print("❌ No accounts configured. Please edit accounts.json and try again.")
         sys.exit(1)
 
     # Get rate limit delay from settings
@@ -1073,36 +1391,43 @@ def main() -> None:
     codes = load_redemption_codes(codes_file)
     if not codes:
         print(
-            f"No redemption codes found in {codes_file}. Please add codes to this file."
+            f"❌ No redemption codes found in {codes_file}. Please add codes to this file."
         )
         print(
-            "Format: One code per line. Lines starting with # are treated as comments."
+            "ℹ️ Format: One code per line. Lines starting with # are treated as comments."
         )
         # Create an example file if it doesn't exist
         if not os.path.exists(codes_file):
             with open(codes_file, "w") as f:
                 f.write("# Add your redemption codes here, one per line\n")
                 f.write("# Example: ABCD-1234-XYZ\n")
-            print(f"Created example file at {codes_file}")
+            print(f"📝 Created example file at {codes_file}")
         sys.exit(0)
 
-    # Process each account
-    print(
-        f"Starting redemption process for {len(accounts)} accounts, {len(codes)} codes each"
-    )
-    for i, account in enumerate(accounts):
-        print(f"\n=== Account {i+1}/{len(accounts)} ===")
-        process_account(account, codes, rate_limit_delay)
+    # Initialize the redeemed codes manager to track code redemption across all accounts
+    redeemed_codes_manager = RedeemedCodesManager()
 
-        # Add a delay between accounts
-        if i < len(accounts) - 1:
+    # Process each account
+    print(f"🚀 Processing {len(accounts)} accounts with {len(codes)} redemption codes")
+    for i, account in enumerate(accounts):
+        print(f"\n📊 === Account {i+1}/{len(accounts)} ===")
+
+        # Process the account and get whether server requests were made
+        server_requests_made = process_account(
+            account, codes, rate_limit_delay, redeemed_codes_manager
+        )
+
+        # Add a delay between accounts only if server requests were made AND there are more accounts to process
+        if server_requests_made and i < len(accounts) - 1:
             delay = max(
                 rate_limit_delay * 2, 5.0
             )  # Use at least 5 seconds between accounts
-            print(f"\nWaiting {delay} seconds before processing next account...")
+            print(f"⏱️ Waiting {delay} seconds before next account...")
             time.sleep(delay)
+        elif i < len(accounts) - 1:
+            print("⏭️ Skipping wait time (no server requests made)")
 
-    print("\nAll accounts processed successfully!")
+    print("\n🎉 All accounts processed successfully!")
 
 
 if __name__ == "__main__":
