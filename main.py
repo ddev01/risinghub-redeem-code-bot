@@ -22,33 +22,16 @@ class LoginManager:
         """
         self.base_url = base_url
         self.session = requests.Session()
-
-        if os.getenv("DEBUG"):
-            self.session.proxies = {
-                "http": "http://127.0.0.1:8080",
-                "https": "http://127.0.0.1:8080",
-            }
-            proxy = "http://127.0.0.1:8080"
-            os.environ["http_proxy"] = proxy
-            os.environ["HTTP_PROXY"] = proxy
-            os.environ["https_proxy"] = proxy
-            os.environ["HTTPS_PROXY"] = proxy
-            os.environ["REQUESTS_CA_BUNDLE"] = "certificate.pem"
         self.cookie_file = cookie_file
-        # Set common browser headers
+
+        # Set browser-like headers but leave out Accept-Encoding to let requests handle compression
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "same-origin",
-                "Sec-Fetch-User": "?1",
-                "Cache-Control": "max-age=0",
             }
         )
 
@@ -58,49 +41,69 @@ class LoginManager:
         """
         print(f"Attempting login for user: {username}")
 
-        login_url = self.base_url + "login"
-        # Set referrer for initial request to base URL
-        self.session.headers.update({"Referer": self.base_url})
-        response = self.session.get(login_url)
+        try:
+            login_url = self.base_url + "login"
+            print(f"Login URL: {login_url}")
 
-        # Parse the HTML to find the token
-        soup = BeautifulSoup(response.text, "html.parser")
-        token_input = soup.find("input", {"name": "_token"})
+            # Remove Accept-Encoding header if it exists to let requests handle compression
+            self.session.headers.pop("Accept-Encoding", None)
 
-        if not token_input:
-            print("Error: Could not find CSRF token on login page")
+            print("Fetching login page...")
+            response = self.session.get(login_url, timeout=10)
+            print(f"Login page status code: {response.status_code}")
+
+            # Parse the HTML to find the token
+            print("Searching for CSRF token...")
+            soup = BeautifulSoup(response.text, "html.parser")
+            token_input = soup.find("input", {"name": "_token"})
+
+            if not token_input:
+                print("Error: Could not find CSRF token on login page")
+                return None
+
+            token = token_input["value"]
+            print(f"Found CSRF token: {token[:5]}...{token[-5:]}")
+
+            login_data = {
+                "_token": token,
+                "username": username,
+                "password": password,
+                "submit": "",
+            }
+
+            # Make the login request with allow_redirects=False to see the redirect location
+            print(f"Sending login request to {login_url}")
+            login_response = self.session.post(
+                login_url, data=login_data, allow_redirects=False, timeout=10
+            )
+
+            # Check if login was successful based on the redirect location
+            if login_response.status_code == 302:
+                redirect_location = login_response.headers.get("location", "")
+                print(f"Login response: Status 302, Redirect to: {redirect_location}")
+
+                # Successful login redirects to the base URL or profile, failed login redirects back to login
+                if "/login" not in redirect_location:
+                    print(f"Login successful for user: {username}!")
+                    self.save_cookies()
+                    return self.session
+
+            # If we get here, login failed
+            print(
+                f"Login failed for user: {username}. Response code: {login_response.status_code}"
+            )
             return None
 
-        token = token_input["value"]
-
-        login_data = {
-            "_token": token,
-            "username": username,
-            "password": password,
-            "submit": "",
-        }
-
-        # Update referrer for login POST request
-        self.session.headers.update({"Referer": login_url})
-
-        # Make the login request with allow_redirects=False to see the redirect location
-        login_response = self.session.post(
-            login_url, data=login_data, allow_redirects=False
-        )
-
-        # Check if login was successful based on the redirect location
-        if login_response.status_code == 302:
-            redirect_location = login_response.headers.get("location", "")
-
-            # Successful login redirects to the base URL or profile, failed login redirects back to login
-            if "/login" not in redirect_location:
-                print("Login successful!")
-                self.save_cookies()
-                return self.session
-
-        # If we get here, login failed
-        print("Login failed. Wrong credentials?")
-        return None
+        except requests.exceptions.Timeout:
+            print(f"Login request timed out for user: {username}")
+            return None
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error during login for user: {username}")
+            print("Check your network connection and make sure the site is accessible")
+            return None
+        except Exception as e:
+            print(f"Unexpected error during login: {str(e)}")
+            return None
 
     def save_cookies(self) -> bool:
         """
@@ -412,7 +415,6 @@ class CSVLogger:
                 ]
             )
 
-        print(f"Logged info to {self.info_log_file}: {info_type}")
 
     def log_failure(
         self,
@@ -512,10 +514,6 @@ class CodeRedeemer:
 
             if hero_id and hero_name:
                 heroes[hero_name] = hero_id
-
-        # Only print this when called directly, not from other methods
-        if sys._getframe().f_back.f_code.co_name == "main":
-            print(f"Found {len(heroes)} heroes")
         return heroes
 
     def redeem_code(
@@ -777,9 +775,6 @@ class CodeRedeemer:
         has_priorities = priority_faction and (priority_nat_hero or priority_roy_hero)
 
         if has_priorities:
-            print(
-                f"Using priority settings: Faction={priority_faction}, NAT={priority_nat_hero}, ROY={priority_roy_hero}"
-            )
 
             # First priority hero based on faction
             first_priority = (
@@ -793,15 +788,11 @@ class CodeRedeemer:
             if first_priority and first_priority in remaining_heroes:
                 prioritized_heroes.append(first_priority)
                 remaining_heroes.remove(first_priority)
-                print(f"First priority hero: {first_priority}")
 
             # Add second priority hero if it exists
             if second_priority and second_priority in remaining_heroes:
                 prioritized_heroes.append(second_priority)
                 remaining_heroes.remove(second_priority)
-                print(f"Second priority hero: {second_priority}")
-        else:
-            print("No priority settings found, will try all heroes in order")
 
         # Combine prioritized heroes with remaining ones
         all_heroes_in_order = prioritized_heroes + remaining_heroes
@@ -823,11 +814,7 @@ class CodeRedeemer:
             result = self.redeem_code(code, hero_id, hero_name)
 
             if result:
-                print(f"Successfully redeemed code '{code}' for hero {hero_name}")
                 overall_success = True
-                # We don't break here because we want to try for all heroes
-            else:
-                print(f"Failed to redeem code '{code}' for hero {hero_name}")
 
         return overall_success
 
@@ -865,9 +852,6 @@ def main() -> None:
 
     # Display hero information
     heroes = redeemer.extract_hero_ids()
-    print("\nAvailable heroes:")
-    for name, hero_id in heroes.items():
-        print(f"  {name}: {hero_id}")
 
     # Get code from environment variable or command line
     code = os.getenv("REDEEM_CODE", "")
@@ -877,11 +861,6 @@ def main() -> None:
 
     print(f"\n--- Attempting to redeem code: {code} ---")
     redeemer.redeem_code_with_priority(code)
-
-    print("\nRedemption process complete. Check CSV logs for details.")
-    print(f"  Success log: {logger.success_log_file}")
-    print(f"  Info log: {logger.info_log_file}")
-    print(f"  Failure log: {logger.failure_log_file}")
 
 
 if __name__ == "__main__":
