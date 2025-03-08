@@ -1,4 +1,5 @@
 certificate.pem
+old_codes.txt
 
 # Ignore cookie files
 session_cookies.json
