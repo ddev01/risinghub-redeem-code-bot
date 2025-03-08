@@ -370,11 +370,11 @@ class CodeRedeemer:
             # Handle successful redemption
             if isinstance(result, list) and len(result) >= 2 and result[0] == "success":
                 # Extract items data
-                items_data = result[1] if len(result) > 1 else {}
+                items = result[1] if len(result) > 1 else {}
 
                 # Show success message with items
                 item_names = []
-                for item_id, details in items_data.items():
+                for item_id, details in items.items():
                     if len(details) >= 3:  # Make sure we have at least the name
                         item_names.append(details[2])
 
@@ -382,7 +382,7 @@ class CodeRedeemer:
                 self.console.success(f"Code redeemed for {items_str}")
 
                 return RedemptionResult.success_result(
-                    items=items_data,
+                    items=items,
                     response_status=response.status_code,
                     raw_response=str(result),
                 )
@@ -471,7 +471,7 @@ class CodeRedeemer:
         if result.success:
             # Log successful redemption
             self.logger.log_success(
-                hero_name=hero_name, hero_id=hero_id, code=code, items_data=result.items
+                code=code, hero_name=hero_name, hero_id=hero_id, items=result.items
             )
         elif result.is_already_redeemed or result.is_wrong_hero_class:
             # Log informational responses
