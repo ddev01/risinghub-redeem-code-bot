@@ -5,9 +5,10 @@ Main entry point for the RisingHub code redemption bot.
 import sys
 import time
 from typing import List
+from pathlib import Path
 
 from src.config.account_manager import AccountManager
-from src.utils.file_helpers import load_file_lines
+from src.utils.file_helpers import load_file_lines, create_sample_codes_file
 from src.tracking.redeemed_codes_manager import RedeemedCodesManager
 from src.redemption.account_processor import AccountProcessor
 from src.logging.console import ConsoleLogger
@@ -86,16 +87,20 @@ def main() -> None:
     # Get codes file path from settings
     codes_file = settings.get("codes_file", "redemption_codes.txt")
 
+    # Check if codes file exists and create it if not
+    if not Path(codes_file).exists():
+        logger.info(f"Creating sample redemption codes file at {codes_file}")
+        create_sample_codes_file(codes_file)
+
     # Load redemption codes
     codes = load_file_lines(codes_file, ignore_comments=True)
 
     if not codes:
-        logger.error(
-            f"No redemption codes found in {codes_file}. Please add codes to this file."
-        )
+        logger.warning(f"No redemption codes found in {codes_file}.")
         logger.info(
-            "Format: One code per line. Lines starting with # are treated as comments."
+            "Please add codes to this file following the format: one code per line."
         )
+        logger.info("The file has been created. Edit it and run the program again.")
         sys.exit(0)
 
     # Process all accounts

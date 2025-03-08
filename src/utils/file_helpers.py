@@ -119,3 +119,22 @@ def load_file_lines(file_path: str, ignore_comments: bool = True) -> List[str]:
         return lines
     except FileNotFoundError:
         return []
+
+
+def create_sample_codes_file(file_path: str) -> None:
+    """
+    Create a sample redemption codes file with instructions.
+
+    Args:
+        file_path: The path to create the file at
+    """
+    ensure_directory_exists(Path(file_path).parent)
+
+    with open(file_path, "w") as f:
+        f.write("# RisingHub Redemption Codes\n")
+        f.write("# Add your codes below, one per line\n")
+        f.write("# Lines starting with # are comments and will be ignored\n")
+        f.write("# Example:\n")
+        f.write("# MS15-ABCD-1234\n")
+        f.write("\n")
+        f.write("# Your codes here:\n")
