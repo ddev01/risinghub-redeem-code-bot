@@ -3,7 +3,7 @@ HTTP utilities for the RisingHub code redemption bot.
 """
 
 import requests
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Tuple, Union, List
 from bs4 import BeautifulSoup
 
 
@@ -73,7 +73,7 @@ class RequestHandler:
 
 class HtmlParser:
     """
-    Utility for parsing HTML responses.
+    HTML parsing utilities for extracting data from web pages.
     """
 
     @staticmethod
@@ -81,47 +81,94 @@ class HtmlParser:
         html_content: str, token_name: str = "_token"
     ) -> Optional[str]:
         """
-        Extract a CSRF token from HTML content.
-
-        Args:
-            html_content: The HTML content to parse
-            token_name: The name of the token input field
-
-        Returns:
-            The token value if found, None otherwise
+        Extract CSRF token from HTML content
         """
-        soup = BeautifulSoup(html_content, "html.parser")
-        token_input = soup.find("input", {"name": token_name})
+        try:
+            soup = BeautifulSoup(html_content, "html.parser")
 
-        if not token_input:
+            # Try to find token in meta tags
+            meta_token = soup.find("meta", {"name": token_name})
+            if meta_token and meta_token.get("content"):
+                return meta_token["content"]
+
+            # Try to find token in form inputs
+            input_token = soup.find("input", {"name": token_name})
+            if input_token and input_token.get("value"):
+                return input_token["value"]
+
             return None
-
-        return token_input.get("value")
+        except Exception:
+            return None
 
     @staticmethod
     def extract_select_options(html_content: str, select_name: str) -> Dict[str, str]:
         """
-        Extract options from a select dropdown in HTML.
-
-        Args:
-            html_content: The HTML content to parse
-            select_name: The name of the select element
-
-        Returns:
-            A dictionary mapping option text to option value
+        Extract options from a select dropdown in HTML content
         """
-        soup = BeautifulSoup(html_content, "html.parser")
-        select_element = soup.find("select", {"name": select_name})
-
         options = {}
-        if not select_element:
-            return options
+        try:
+            soup = BeautifulSoup(html_content, "html.parser")
+            select = soup.find("select", {"name": select_name})
 
-        for option in select_element.find_all("option"):
-            value = option.get("value")
-            text = option.text.strip()
-
-            if value and text:
-                options[text] = value
+            if select:
+                for option in select.find_all("option"):
+                    value = option.get("value")
+                    text = option.text.strip()
+                    if value:
+                        options[value] = text
+        except Exception:
+            pass
 
         return options
+
+    @staticmethod
+    def extract_redemption_history(html_content: str) -> List[Dict[str, str]]:
+        """
+        Extract redemption history from the profile page table
+
+        Returns:
+            List of dictionaries with date, code, and hero information
+        """
+        redemption_history = []
+
+        try:
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Look for tables that might contain redemption history
+            tables = soup.find_all("table")
+
+            for table in tables:
+                # Check if this table has the redemption history headers
+                headers = table.find_all("th")
+                header_texts = [h.text.strip().lower() for h in headers]
+
+                # If the table has Date, Code, and Hero columns, it's likely the redemption table
+                if (
+                    "date" in header_texts
+                    and "code" in header_texts
+                    and "hero" in header_texts
+                ):
+                    # Extract the indices for each column
+                    date_idx = header_texts.index("date")
+                    code_idx = header_texts.index("code")
+                    hero_idx = header_texts.index("hero")
+
+                    # Process each row in the table body
+                    for row in table.find("tbody").find_all("tr"):
+                        cells = row.find_all("td")
+                        if len(cells) > max(date_idx, code_idx, hero_idx):
+                            redemption_data = {
+                                "date": cells[date_idx].text.strip(),
+                                "code": cells[code_idx].text.strip(),
+                                "hero": cells[hero_idx].text.strip(),
+                            }
+                            redemption_history.append(redemption_data)
+
+                    # Found the redemption table, no need to continue searching
+                    break
+
+        except Exception as e:
+            # In case of any errors, just return an empty list
+            pass
+
+        return redemption_history

@@ -20,7 +20,7 @@ class AccountManager:
         Initialize with configuration file path
 
         Args:
-            config_file: Path to the account configuration file
+                config_file: Path to the account configuration file
         """
         self.config_file = config_file
         self.config = self._load_config()
@@ -33,10 +33,10 @@ class AccountManager:
         Load account configuration from JSON file
 
         Returns:
-            The loaded configuration
+                The loaded configuration
 
         Raises:
-            SystemExit: If the configuration file is not found or cannot be parsed
+                SystemExit: If the configuration file is not found or cannot be parsed
         """
         try:
             config = load_json_with_comments(self.config_file)
@@ -110,7 +110,7 @@ class AccountManager:
         Get all configured accounts
 
         Returns:
-            List of account configurations
+                List of account configurations
         """
         return self.config.get("accounts", [])
 
@@ -119,7 +119,7 @@ class AccountManager:
         Get global settings
 
         Returns:
-            Dictionary of settings
+                Dictionary of settings
         """
         return self.config.get("settings", {})
 
@@ -128,10 +128,10 @@ class AccountManager:
         Get cookie file path for a specific account
 
         Args:
-            username: The username to get the cookie file for
+                username: The username to get the cookie file for
 
         Returns:
-            Path to the cookie file
+                Path to the cookie file
         """
         return f"sessions/{username}/session_cookies.json"
 
@@ -140,10 +140,10 @@ class AccountManager:
         Get log file paths for a specific account
 
         Args:
-            username: The username to get log files for
+                username: The username to get log files for
 
         Returns:
-            Dictionary of log file paths
+                Dictionary of log file paths
         """
         return {
             "success": f"logs/{username}/{username}_redemption_success.csv",
@@ -156,11 +156,10 @@ class AccountManager:
         Update the heroes information for a specific account
 
         Args:
-            username: The username to update heroes for
-            heroes: Dictionary mapping hero names to hero IDs
+                username: The username to update heroes for
+                heroes: Dictionary mapping hero names to hero IDs
         """
         accounts = self.get_accounts()
-
         for account in accounts:
             if account.get("username") == username:
                 account["heroes"] = heroes
@@ -184,10 +183,10 @@ class AccountManager:
         Get the heroes for a specific account
 
         Args:
-            username: The username to get heroes for
+                username: The username to get heroes for
 
         Returns:
-            Dictionary mapping hero names to hero IDs
+                Dictionary mapping hero names to hero IDs
         """
         accounts = self.get_accounts()
 

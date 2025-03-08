@@ -63,8 +63,9 @@ def validate_heroes_data(heroes: Dict[str, str]) -> Tuple[bool, str]:
     """
     Validate hero data.
 
-    Args:
-        heroes: Dictionary mapping hero names to hero IDs
+    Expected format is a dictionary where:
+    - Keys are hero names (strings)
+    - Values are hero IDs (numeric strings)
 
     Returns:
         A tuple of (is_valid, error_message)

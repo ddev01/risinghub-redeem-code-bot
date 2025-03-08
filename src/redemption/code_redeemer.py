@@ -234,7 +234,7 @@ class CodeRedeemer:
     def extract_hero_ids(self) -> Dict[str, str]:
         """
         Extract the hero IDs from the redeem page
-
+        
         Returns:
             A dictionary mapping hero names to hero IDs
         """
@@ -249,10 +249,13 @@ class CodeRedeemer:
         if not heroes:
             self.console.warning("Could not find hero select dropdown")
 
+        # Flip the dictionary to make it name:id instead of id:name
+        flipped_heroes = {name: hero_id for hero_id, name in heroes.items()}
+
         # Update the hero manager with the extracted heroes
         self.hero_manager.add_heroes_from_dict(heroes)
 
-        return heroes
+        return flipped_heroes
 
     def prepare_redemption_request(
         self, code: str, hero_id: str, token: str

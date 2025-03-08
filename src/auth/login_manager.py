@@ -177,7 +177,7 @@ class LoginManager:
 
         profile_url = f"{self.base_url}profile"
         try:
-            response = RequestHandler.get(self.session, profile_url, logger=self.logger)
+            response = RequestHandler.get(self.session, profile_url)
 
             if not response or response.status_code != 200:
                 return False
