@@ -12,14 +12,16 @@ logs/**/*.csv
 logs/**/*.log
 *.log
 
-# Ignore sessions directory
+# Ignore sessions directory (legacy layout)
 sessions/
 sessions/**/*
 
-# Ignore account configuration
+# Runtime data (SQLite, JSONL cache, reports, sessions)
+data/
+
+# Account configuration (real credentials)
+config/accounts.json
 accounts.json
-# But keep the template
-!accounts_template.json
 
 # Python
 __pycache__/
@@ -45,6 +47,7 @@ var/
 
 # Virtual environment
 venv/
+.venv/
 ENV/
 .env
 
