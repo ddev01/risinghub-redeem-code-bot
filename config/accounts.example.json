@@ -1,0 +1,27 @@
+{
+	"accounts": [
+		{
+			"username": "test_user_01",
+			"password": "CHANGE_ME",
+			"priority_heroes": [
+				"test_hero_roy_soldier",
+				"test_hero_roy_gunner",
+				"test_hero_nat_soldier",
+				"test_hero_nat_gunner",
+				"test_hero_roy_mando",
+				"test_hero_nat_mando"
+			],
+			"heroes": {}
+		},
+		{
+			"username": "test_user_02",
+			"password": "CHANGE_ME",
+			"priority_heroes": [],
+			"heroes": {}
+		}
+	],
+	"settings": {
+		"rate_limit_delay": 2.0,
+		"account_delay_multiplier": 2.0
+	}
+}
