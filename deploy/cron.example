@@ -1,0 +1,5 @@
+# User crontab example for redeem-bot (every 2 hours).
+# Install once with: ./deploy/install-cron.sh
+#
+# Edit the cd path if REMOTE_PATH differs on your VPS.
+0 */2 * * * cd ~/risinghub-redeem-code-bot && .venv/bin/redeem-bot run >> data/run.log 2>&1
