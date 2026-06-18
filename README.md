@@ -1,88 +1,170 @@
-# RisingHub Code Redemption Bot
+# RisingHub Redeem Bot
 
-This tool automates the process of redeeming promotional codes on RisingHub across multiple accounts and heroes.
+Cron-driven CLI that fetches promo codes from Discord channels, extracts candidates with heuristics, then redeems on every hero for every configured account.
+
+> **Personal use only.** Discord selfbots violate Discord's Terms of Service. Use at your own risk.
 
 ## Features
 
-- **Multi-Account Support**: Process multiple accounts sequentially with appropriate rate limiting
-- **Smart Code Tracking**: Remember which codes have been attempted on which heroes to avoid redundant attempts
-- **Prioritized Redemption**: Choose heroes based on configurable priorities (faction preference)
-- **Session Management**: Persist login sessions using cookies to minimize authentication requests
-- **Comprehensive Logging**: Track successful redemptions, failures, and informational events
+- **REST-only Discord fetch** — no gateway; short-lived cron runs
+- **Fixture-tunable extraction** — `extract test` for playback before live redemption
+- **Redeem everywhere** — every hero on every account; seasonal codes may redeem per hero and already-redeemed responses are expected
+- **SQLite state** — channel cursors, seen codes, redemption attempts, run log
+- **Webhook alerts** — `@everyone` on fatal errors; success embeds without ping; optional debug traces
 
 ## Setup
 
-1. Install Python 3.8 or later
-2. Install dependencies:
+1. Python 3.10+
+2. Install the package (editable dev install):
+
+   ```bash
+   pip install -e ".[dev]"
    ```
-   pip install -r requirements.txt
+
+3. Copy env and accounts templates:
+
+   ```bash
+   cp .env.example .env
+   cp config/accounts.example.json config/accounts.json
    ```
-3. Create your configuration file:
-   - A template `accounts.json` will be created on first run
-   - Edit the template with your account information
+
+4. Edit `.env` with your RisingHub base URL, Discord token, channel IDs, and webhook URL.
+5. Edit `config/accounts.json` with account credentials and hero priorities.
 
 ## Configuration
 
-Edit the `accounts.json` file with your account information:
+| Variable | Purpose |
+| -------- | ------- |
+| `RISINGHUB_BASE_URL` | RisingHub site root (trailing slash optional) |
+| `DISCORD_USER_TOKEN` | User token for REST message fetch |
+| `DISCORD_CHANNEL_IDS` | Comma-separated channel IDs to watch |
+| `DISCORD_FETCH_SINCE` | Default lower bound for first fetch |
+| `DISCORD_WEBHOOK_URL` | Webhook for fatal errors and successes |
+| `DISCORD_WEBHOOK_DEBUG` | When `true`, post verbose pipeline traces (source msg, probe, per-account results) to the same webhook |
+| `DISCORD_GUILD_ID` | Server ID for Discord message jump links in debug traces |
+| `ACCOUNTS_FILE` | Path to accounts JSON (default `config/accounts.json`) |
+| `DATA_DIR` | Runtime data root (default `data/`) |
+
+Accounts JSON shape:
 
 ```json
 {
-	"accounts": [
-		{
-			"username": "your_username",
-			"password": "your_password",
-			"priority_nat_hero": "yournatgunner",
-			"priority_roy_hero": "yourroygunner",
-			"priority_faction": "nat",
-			"heroes": {}
-		}
-	],
-	"settings": {
-		"rate_limit_delay": 2.0,
-		"codes_file": "redemption_codes.txt"
-	}
+  "accounts": [
+    {
+      "username": "test_user_01",
+      "password": "CHANGE_ME",
+      "priority_heroes": [
+        "test_hero_roy_soldier",
+        "test_hero_roy_gunner",
+        "test_hero_nat_soldier",
+        "test_hero_nat_gunner",
+        "test_hero_roy_mando",
+        "test_hero_nat_mando"
+      ],
+      "heroes": {}
+    }
+  ],
+  "settings": {
+    "rate_limit_delay": 2.0,
+    "account_delay_multiplier": 2.0
+  }
 }
 ```
 
-## Redemption Codes
+`priority_heroes` is an ordered list of hero names from your RisingHub profile. Those heroes are tried first; any other heroes on the profile are tried afterward in random order. Leave the list empty (`[]`) to try every hero in random order. Old `priority_nat_hero` / `priority_roy_hero` / `priority_faction` fields are still accepted and migrated automatically.
 
-Add redemption codes to the `redemption_codes.txt` file (or whatever file you specify in `settings.codes_file`):
+## CLI commands
+
+| Command | Description |
+| ------- | ----------- |
+| `redeem-bot fetch [--since DATE] [--channel-id ID]` | Pull Discord messages into JSONL cache |
+| `redeem-bot extract test [--since DATE] [--from-cache]` | Print extraction report (no redemption) |
+| `redeem-bot redeem --code CODE[,CODE...] [--dry-run] [--force]` | Manually redeem one or more codes |
+| `redeem-bot run [--dry-run] [--from-cache] [--since DATE]` | Full pipeline |
+| `redeem-bot codes skip-backlog [--since DATE] [--dry-run]` | Mark pending cache codes as tried (skip old backlog) |
+| `redeem-bot status` | Cursors, pending codes, last run |
+
+### Examples
+
+```bash
+# Tune extraction from cached messages
+redeem-bot extract test --from-cache --since 2025-03-01
+# Also writes data/reports/extract-codes-YYYY-MM-DD.txt (CODE<TAB>author per line)
+
+# Dry-run full pipeline (no HTTP redemption)
+redeem-bot run --dry-run --from-cache --since 2025-03-01
+
+# Live cron run (fetch + redeem)
+redeem-bot run
+
+# Redeem several codes in one go
+redeem-bot redeem --force --code SPRING-2025-RH-NAT,RHWC-EVENT-2026-NAT,RHWC-EVENT-2026-ROY
+
+# After manual testing: skip the old Discord backlog so cron only tries new codes
+redeem-bot codes skip-backlog --dry-run   # preview
+redeem-bot codes skip-backlog
+```
+
+## Cron deployment
+
+Run every 2 hours on a small VPS:
+
+```cron
+0 */2 * * * cd /path/to/risinghub-redeem-code-bot && .venv/bin/redeem-bot run >> data/run.log 2>&1
+```
+
+Each invocation fetches new messages, processes untried codes only, and exits. Seasonal codes reposted in Discord (e.g. weekly dotw bulletins) are tried once; later mentions are skipped automatically via `seen_codes` in SQLite.
+
+## Data layout
 
 ```
-CODE1-ABCD-XYZ
-CODE2-EFGH-XYZ
-# This is a comment
-CODE3-IJKL-XYZ # Inline comment
+data/
+├── cache/messages/{channel_id}.jsonl
+├── state.sqlite
+├── sessions/{username}/cookies.json
+└── reports/extract-{date}.json
 ```
 
-## Usage
+## Tests
 
-Run the bot with:
-
-```
-python main.py
+```bash
+pytest
 ```
 
-## Output Files
+## Deployment
 
-- **Session Cookies**: Stored in `sessions/{username}/session_cookies.json`
-- **Redemption Logs**:
-  - `logs/{username}/{username}_redemption_success.csv`: Successful redemptions
-  - `logs/{username}/{username}_redemption_failure.csv`: Failed redemptions
-  - `logs/{username}/{username}_redemption_info.csv`: Informational responses
-  - `logs/redeemed_codes.csv`: Master record of all redemption attempts
+Deploy from your laptop to the VPS over SSH (`SERVER=server` by default):
 
-## How It Works
+```bash
+./deploy/check-env.sh    # validate .env + accounts.json locally
+./deploy/deploy.sh       # rsync code, install venv on server, run smoke checks
+```
 
-1. The bot loads account configurations and redemption codes.
-2. For each account, it loads stored hero information.
-3. It filters out codes that have already been redeemed by all heroes.
-4. It authenticates and retrieves current hero information.
-5. It tries to redeem remaining codes, prioritizing heroes based on your settings.
-6. All redemption attempts are tracked for future reference.
+Useful overrides:
 
-The system intelligently avoids redundant attempts by checking if codes have already been tried on specific heroes, improving efficiency for repeat runs.
+```bash
+SKIP_TESTS=1 ./deploy/deploy.sh
+SERVER=server REMOTE_PATH='~/risinghub-redeem-code-bot' ./deploy/deploy.sh
+```
+
+**What deploy preserves:** server `data/` (SQLite, Discord cache, sessions) is never deleted.
+
+**What deploy copies separately:** `.env` and `config/accounts.json` (gitignored secrets).
+
+**Production readiness checklist:**
+
+1. Local: `pytest` passes
+2. Local: `./deploy/check-env.sh` passes (no `CHANGE_ME` / `example.test` placeholders)
+3. Server: `./deploy/smoke.sh` passes after deploy
+4. Server: `redeem-bot fetch` then `redeem-bot extract test --from-cache --since 2025-08-01` looks sane
+5. Server: `redeem-bot run --dry-run --from-cache` completes without errors
+6. Server: manual `redeem-bot redeem --code SOME-KNOWN-CODE --dry-run` if you want to verify hero order
+7. Enable cron when satisfied: `ssh server 'cd ~/risinghub-redeem-code-bot && ./deploy/install-cron.sh'`
+
+**Repo `old/` folder:** legacy pre-rewrite code; not deployed (rsync excludes it). Safe to delete locally once you no longer need it for reference.
+
+**`Risinghub-claw-bot` on the server:** separate older browser bot; remove manually when you have fully switched to this CLI bot.
 
 ## License
 
-This project is licensed for personal use only. Do not use this for commercial purposes. 
+Personal use only. Not for commercial redistribution.
