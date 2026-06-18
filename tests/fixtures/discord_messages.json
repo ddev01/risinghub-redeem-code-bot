@@ -1,0 +1,65 @@
+[
+  {
+    "id": "1000000000000000001",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-01T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Summer event code: SUMMER-SUN-RISINGHUB-2025 — redeem fast!"
+  },
+  {
+    "id": "1000000000000000002",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-02T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Jeep-Jump-And-Ram is live for everyone."
+  },
+  {
+    "id": "1000000000000000003",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-03T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Royal subs: THNX-1000-ROY-SUBS\nNational subs: THNX-1000-NAT-SUBS"
+  },
+  {
+    "id": "1000000000000000004",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-04T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "ASCE-NATG-1000 for gunners, ASCE-ROYM-1000 for mandos, MS15-ROYS-1000 for soldiers."
+  },
+  {
+    "id": "1000000000000000005",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-05T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "RH-SUMMER-2026-ROY and RH-SUMMER-2026-NAT dropped."
+  },
+  {
+    "id": "1000000000000000006",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-06T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Seasonal: SPRING-2025-RH-NAT, CHRISTMAS-2025-RH-ROY, 2026-HPPY-ESTR, XXRH-BLCK-FRDY."
+  },
+  {
+    "id": "1000000000000000007",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-07T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Codes: next-dotw-in-april, waiting-code-royal, waiting-code-national, 2026-COTW-FP2F-498W."
+  },
+  {
+    "id": "1000000000000000008",
+    "channel_id": "900000000000000001",
+    "timestamp": "2024-12-01T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Old message with SUMMER-SUN-RISINGHUB-2025 should be ignored by since filter."
+  },
+  {
+    "id": "1000000000000000009",
+    "channel_id": "900000000000000001",
+    "timestamp": "2025-06-08T12:00:00+00:00",
+    "author": {"username": "test_user_01"},
+    "content": "Trailing punctuation test: RH-SUMMER-2026-NAT."
+  }
+]

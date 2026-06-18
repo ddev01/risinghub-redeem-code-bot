@@ -1,0 +1,8 @@
+{
+  "success": ["success", {"101": [1, 2, "Test Item"]}],
+  "already_redeemed": ["error", "You can't use this code again"],
+  "wrong_hero_nat": ["error", {"201": ["Nat Item", 1, 2]}],
+  "wrong_hero_roy": ["error", {"202": ["Roy Item", 1, 2]}],
+  "invalid_code": ["error", "Invalid redemption code"],
+  "unexpected": {"status": "unknown"}
+}
